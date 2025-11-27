@@ -56,6 +56,10 @@ This section documents common issues encountered during development and their so
 - Use `logger.info()` or `logger.debug()` instead (writes to stderr)
 - MCP protocol requires stdout to contain ONLY JSON-RPC messages
 
+Find any remaining print statements
+grep -r "print(" src/
+
+text
 
 ---
 
@@ -66,7 +70,17 @@ This section documents common issues encountered during development and their so
 **Cause:** Using OAuth authorization server URL for resource API calls
 
 **Problem:**
+WRONG - Using OAuth issuer for API calls
+orgUrl = "https://your-org.okta.com/oauth2/ausxxx..."
 
+text
+
+**Solution:**
+CORRECT - Separate URLs for different purposes
+OKTA_ORG_URL = "https://your-org.okta.com/oauth2/ausxxx..." # For OAuth/device flow
+OKTA_API_BASE_URL = "https://your-org.okta.com" # For resource APIs
+
+text
 
 **Key Insight:**
 - OAuth endpoints: `/oauth2/{authServerId}/v1/token`
@@ -84,9 +98,26 @@ This section documents common issues encountered during development and their so
 **Solutions:**
 
 #### A. Authorization Mode Mismatch
+WRONG - Bearer is for OAuth access tokens
+config = {
+"authorizationMode": "Bearer"
+}
 
+CORRECT - SSWS is for Okta API tokens
+config = {
+"authorizationMode": "SSWS"
+}
+
+text
 
 #### B. Using OAuth Token Instead of API Token
+WRONG - Using OAuth access token from keyring
+api_token = keyring.get_password(SERVICE_NAME, "api_token")
+
+CORRECT - Using API token from environment
+api_token = os.environ.get("OKTA_API_TOKEN")
+
+text
 
 ---
 
@@ -98,6 +129,19 @@ This section documents common issues encountered during development and their so
 
 **Solution:** Add ALL required variables to `claude_desktop_config.json`:
 
+{
+"mcpServers": {
+"okta-mcp-server": {
+"env": {
+"OKTA_API_BASE_URL": "https://your-org.okta.com",
+"OKTA_API_TOKEN": "your_token_here",
+"OKTA_ORG_URL": "https://your-org.okta.com/oauth2/ausxxx..."
+}
+}
+}
+}
+
+text
 
 **Remember:** Completely quit and restart Claude Desktop after config changes (Cmd+Q on Mac)
 
@@ -108,7 +152,78 @@ This section documents common issues encountered during development and their so
 **Issue:** Code changes not taking effect, still seeing old errors
 
 **Solution:** Clear Python cache:
+find . -type d -name "pycache" -exec rm -r {} + 2>/dev/null
+find . -name "*.pyc" -delete
 
+text
+
+Then completely restart Claude Desktop.
+
+---
+
+### 7. **OAuth Device Flow Not Working for Production**
+
+**Issue:** Server requires manual browser interaction for authentication
+
+**Solution:** For production, use API token authentication only:
+1. Remove all device flow/OAuth code from `auth_manager.py`
+2. Configure `client.py` to use `OKTA_API_TOKEN` from environment
+3. Set `authorizationMode: "SSWS"`
+4. Never store API tokens in keyring
+
+---
+
+## Key Architecture Decisions
+
+### Authentication Strategy
+- **Development (with Claude Desktop):** Device flow with manual login
+- **Production (Docker/EC2):** API token only (no interactive auth)
+
+### URL Configuration
+| Purpose | Environment Variable | Example |
+|---------|---------------------|---------|
+| OAuth/Device Flow | `OKTA_ORG_URL` | `https://org.okta.com/oauth2/ausxxx...` |
+| Resource APIs | `OKTA_API_BASE_URL` | `https://org.okta.com` |
+| API Authentication | `OKTA_API_TOKEN` | Your API token |
+
+### Client Configuration
+For Okta SDK client (resource APIs)
+config = {
+"orgUrl": os.environ.get("OKTA_API_BASE_URL"), # Base URL, no /oauth2
+"token": os.environ.get("OKTA_API_TOKEN"), # API token
+"authorizationMode": "SSWS", # NOT "Bearer"
+"userAgent": "okta-mcp-server/0.0.1"
+}
+
+text
+
+---
+
+## Debugging Tips
+
+### Check What Claude Desktop Sees
+View Claude Desktop logs (macOS)
+tail -f ~/Library/Logs/Claude/mcp-server-okta-mcp-server.log
+
+Or open Developer Tools in Claude Desktop
+Cmd+Option+I → Console tab
+text
+
+### Test API Token Directly
+curl -H "Authorization: SSWS your_api_token"
+"https://your-org.okta.com/api/v1/users?limit=1"
+
+text
+
+Should return user data (not 401 or 404).
+
+### Verify Environment Variables
+Add temporary logging to verify vars are loaded
+import os
+logger.info(f"OKTA_API_BASE_URL: {os.environ.get('OKTA_API_BASE_URL')}")
+logger.info(f"OKTA_API_TOKEN is set: {'OKTA_API_TOKEN' in os.environ}")
+
+text
 
 ---
 
