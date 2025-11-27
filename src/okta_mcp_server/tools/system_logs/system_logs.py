@@ -67,10 +67,9 @@ async def get_logs(
             logger.warning(f"Limit {limit} exceeds maximum (100), setting to 100")
             limit = 100
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug("Calling Okta API to retrieve system logs")
 
         query_params = build_query_params(after=after, limit=limit, since=since, until=until, filter=filter, q=q)

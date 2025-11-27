@@ -51,10 +51,9 @@ async def list_policies(
             logger.warning(f"Limit {limit} exceeds maximum (100), setting to 100")
             limit = 100
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        okta_client = await get_okta_client(manager)
+        okta_client = await get_okta_client()
         params = {"type": type, "limit": limit}
         if status:
             params["status"] = status
@@ -94,8 +93,7 @@ async def get_policy(ctx: Context, policy_id: str) -> Optional[Dict[str, Any]]:
     Returns:
         Dict containing the policy details.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         policy, _, err = await okta_client.get_policy(policy_id)
@@ -129,8 +127,7 @@ async def create_policy(ctx: Context, policy_data: Dict[str, Any]) -> Optional[D
     Returns:
         Dict containing the created policy details.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         policy, _, err = await okta_client.create_policy(policy_data)
@@ -157,8 +154,7 @@ async def update_policy(ctx: Context, policy_id: str, policy_data: Dict[str, Any
     Returns:
         Dict containing the updated policy details.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         policy, _, err = await okta_client.update_policy(policy_id, policy_data)
@@ -184,8 +180,7 @@ async def delete_policy(ctx: Context, policy_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success status.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         _, err = await okta_client.delete_policy(policy_id)
@@ -211,8 +206,7 @@ async def activate_policy(ctx: Context, policy_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success status.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         _, err = await okta_client.activate_policy(policy_id)
@@ -238,8 +232,7 @@ async def deactivate_policy(ctx: Context, policy_id: str) -> Dict[str, Any]:
     Returns:
         Dict with success status.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         _, err = await okta_client.deactivate_policy(policy_id)
@@ -269,8 +262,7 @@ async def list_policy_rules(ctx: Context, policy_id: str) -> Dict[str, Any]:
             - next_page_token (Optional[str]): Token for next page
             - error (str): Error message if the operation fails
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         rules, resp, err = await okta_client.list_policy_rules(policy_id)
@@ -305,8 +297,7 @@ async def get_policy_rule(ctx: Context, policy_id: str, rule_id: str) -> Optiona
     Returns:
         Dict containing the policy rule details.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         rule, _, err = await okta_client.get_policy_rule(policy_id, rule_id)
@@ -338,8 +329,7 @@ async def create_policy_rule(ctx: Context, policy_id: str, rule_data: Dict[str, 
     Returns:
         Dict containing the created rule details.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         rule, _, err = await okta_client.create_policy_rule(policy_id, rule_data)
@@ -369,8 +359,7 @@ async def update_policy_rule(
     Returns:
         Dict containing the updated rule details.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         rule, _, err = await okta_client.update_policy_rule(policy_id, rule_id, rule_data)
@@ -397,8 +386,7 @@ async def delete_policy_rule(ctx: Context, policy_id: str, rule_id: str) -> Dict
     Returns:
         Dict with success status.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         _, err = await okta_client.delete_policy_rule(policy_id, rule_id)
@@ -425,8 +413,7 @@ async def activate_policy_rule(ctx: Context, policy_id: str, rule_id: str) -> Di
     Returns:
         Dict with success status.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         _, err = await okta_client.activate_policy_rule(policy_id, rule_id)
@@ -453,8 +440,7 @@ async def deactivate_policy_rule(ctx: Context, policy_id: str, rule_id: str) -> 
     Returns:
         Dict with success status.
     """
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
-    okta_client = await get_okta_client(manager)
+    okta_client = await get_okta_client()
 
     try:
         _, err = await okta_client.deactivate_policy_rule(policy_id, rule_id)

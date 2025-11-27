@@ -50,10 +50,9 @@ async def list_applications(
             logger.warning(f"Limit {limit} exceeds maximum (100), setting to 100")
             limit = 100
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         query_params = {}
 
         if q:
@@ -101,10 +100,9 @@ async def get_application(ctx: Context, app_id: str, expand: Optional[str] = Non
     """
     logger.info(f"Getting application with ID: {app_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
 
         query_params = {}
         if expand:
@@ -137,10 +135,9 @@ async def create_application(ctx: Context, app_config: Dict[str, Any], activate:
     logger.info("Creating new application in Okta organization")
     logger.debug(f"Application label: {app_config.get('label', 'N/A')}, name: {app_config.get('name', 'N/A')}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
 
         query_params = {"activate": activate}
 
@@ -171,10 +168,9 @@ async def update_application(ctx: Context, app_id: str, app_config: Dict[str, An
     """
     logger.info(f"Updating application with ID: {app_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
 
         logger.debug(f"Calling Okta API to update application {app_id}")
         app, _, err = await client.update_application(app_id, app_config)
@@ -236,10 +232,9 @@ async def confirm_delete_application(ctx: Context, app_id: str, confirmation: st
         logger.warning(f"Application deletion cancelled for {app_id} - incorrect confirmation")
         return ["Error: Deletion cancelled. Confirmation 'DELETE' was not provided correctly."]
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to delete application {app_id}")
 
         _, err = await client.delete_application(app_id)
@@ -267,10 +262,9 @@ async def activate_application(ctx: Context, app_id: str) -> list:
     """
     logger.info(f"Activating application: {app_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to activate application {app_id}")
 
         _, err = await client.activate_application(app_id)
@@ -298,10 +292,9 @@ async def deactivate_application(ctx: Context, app_id: str) -> list:
     """
     logger.info(f"Deactivating application: {app_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to deactivate application {app_id}")
 
         _, err = await client.deactivate_application(app_id)

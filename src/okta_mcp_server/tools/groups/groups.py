@@ -66,10 +66,9 @@ async def list_groups(
             logger.warning(f"Limit {limit} exceeds maximum (100), setting to 100")
             limit = 100
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         query_params = build_query_params(search=search, filter=filter, q=q, after=after, limit=limit)
 
         logger.debug("Calling Okta API to list groups")
@@ -116,10 +115,9 @@ async def get_group(group_id: str, ctx: Context = None) -> list:
     """
     logger.info(f"Getting group with ID: {group_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to get group {group_id}")
 
         group, _, err = await client.get_group(group_id)
@@ -150,10 +148,9 @@ async def create_group(profile: dict, ctx: Context = None) -> list:
     logger.info("Creating new group in Okta organization")
     logger.debug(f"Group profile: name={profile.get('name', 'N/A')}, description={profile.get('description', 'N/A')}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         # Wrap the profile in a dict with 'profile' key as required by Okta SDK
         logger.debug("Calling Okta API to create group")
 
@@ -223,10 +220,9 @@ async def confirm_delete_group(group_id: str, confirmation: str, ctx: Context = 
         logger.warning(f"Group deletion cancelled for {group_id} - incorrect confirmation")
         return [{"error": "Deletion cancelled. Confirmation 'DELETE' was not provided correctly."}]
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to delete group {group_id}")
 
         _, err = await client.delete_group(group_id)
@@ -258,10 +254,9 @@ async def update_group(group_id: str, profile: dict, ctx: Context = None) -> lis
     logger.info(f"Updating group with ID: {group_id}")
     logger.debug(f"Updated fields: {list(profile.keys())}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         # Wrap the profile in a dict with 'profile' key as required by Okta SDK
         logger.debug(f"Calling Okta API to update group {group_id}")
 
@@ -323,10 +318,9 @@ async def list_group_users(
             logger.warning(f"Limit {limit} exceeds maximum (100), setting to 100")
             limit = 100
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to list users in group {group_id}")
 
         query_params = build_query_params(after=after, limit=limit)
@@ -372,10 +366,9 @@ async def list_group_apps(group_id: str, ctx: Context = None) -> list:
     """
     logger.info(f"Listing applications assigned to group: {group_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to list applications for group {group_id}")
 
         apps, _, err = await client.list_assigned_applications_for_group(group_id)
@@ -408,10 +401,9 @@ async def add_user_to_group(group_id: str, user_id: str, ctx: Context = None) ->
     """
     logger.info(f"Adding user {user_id} to group {group_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to add user {user_id} to group {group_id}")
 
         _, err = await client.add_user_to_group(group_id, user_id)
@@ -442,10 +434,9 @@ async def remove_user_from_group(group_id: str, user_id: str, ctx: Context = Non
     """
     logger.info(f"Removing user {user_id} from group {group_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to remove user {user_id} from group {group_id}")
 
         _, err = await client.remove_user_from_group(group_id, user_id)

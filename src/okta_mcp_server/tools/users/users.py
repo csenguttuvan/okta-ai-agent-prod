@@ -73,10 +73,9 @@ async def list_users(
             logger.warning(f"Limit {limit} exceeds maximum (100), setting to 100")
             limit = 100
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         query_params = build_query_params(search=search, filter=filter, q=q, after=after, limit=limit)
 
         logger.debug("Calling Okta API to list users")
@@ -125,10 +124,9 @@ async def get_user_profile_attributes(ctx: Context = None) -> list:
     """
     logger.info("Fetching user profile attributes")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug("Fetching first user to extract profile attributes")
 
         users, _, err = await client.list_users({"limit": 1})
@@ -164,10 +162,9 @@ async def get_user(user_id: str, ctx: Context = None) -> list:
     """
     logger.info(f"Getting user with ID: {user_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to get user {user_id}")
 
         user = await client.get_user(user_id)
@@ -194,10 +191,9 @@ async def create_user(profile: dict, ctx: Context = None) -> list:
     logger.info("Creating new user in Okta organization")
     logger.debug(f"User profile: email={profile.get('email', 'N/A')}, login={profile.get('login', 'N/A')}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         # Wrap the profile in a dict with 'profile' key as required by Okta SDK
         user_data = {"profile": profile}
         logger.debug("Calling Okta API to create user")
@@ -232,10 +228,9 @@ async def update_user(user_id: str, profile: dict, ctx: Context = None) -> list:
     """
     logger.info(f"Updating user with ID: {user_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         user_data = {"profile": profile}
         logger.debug(f"Calling Okta API to update user {user_id}")
 
@@ -267,10 +262,9 @@ async def deactivate_user(user_id: str, ctx: Context = None) -> list:
     """
     logger.info(f"Deactivating user with ID: {user_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to deactivate user {user_id}")
 
         _, err = await client.deactivate_user(user_id)
@@ -300,10 +294,9 @@ async def delete_deactivated_user(user_id: str, ctx: Context = None) -> list:
     """
     logger.info(f"Deleting deactivated user with ID: {user_id}")
 
-    manager = ctx.request_context.lifespan_context.okta_auth_manager
 
     try:
-        client = await get_okta_client(manager)
+        client = await get_okta_client()
         logger.debug(f"Calling Okta API to delete user {user_id}")
 
         _, err = await client.deactivate_or_delete_user(user_id)
