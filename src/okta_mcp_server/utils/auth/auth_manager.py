@@ -160,9 +160,10 @@ class OktaAuthManager:
 
     def _initiate_device_authorization(self) -> dict:
         """Initiate the OAuth 2.0 Device Grant authorization flow"""
-        auth_url = f"{self.org_url}/oauth2/v1/device/authorize"
+        logger.info(f"CLIENT_ID: {self.client_id}, SCOPES: {self.scopes}")
+        auth_url = f"{self.org_url}/v1/device/authorize"
         headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
-        data = {"client_id": self.client_id, "scope": self.scopes}
+        data = {"client_id": self.client_id, "scope": "openid"}
 
         logger.info("Initiating device authorization flow")
         logger.debug(f"Request URL: {auth_url}")
@@ -187,7 +188,7 @@ class OktaAuthManager:
 
     def _poll_for_token(self, device_data):
         """Poll token endpoint until success or timeout."""
-        token_url = f"{self.org_url}/oauth2/v1/token"
+        token_url = f"{self.org_url}/v1/token"
         headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
         data = {
             "client_id": self.client_id,

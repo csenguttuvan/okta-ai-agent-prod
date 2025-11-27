@@ -15,6 +15,10 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 from okta_mcp_server.utils.auth.auth_manager import OktaAuthManager
+import os
+logger.info(f"Env OKTA_API_BASE_URL: {os.environ.get('OKTA_API_BASE_URL')}")
+logger.info(f"Env OKTA_ORG_URL: {os.environ.get('OKTA_ORG_URL')}")
+logger.info(f"Env OKTA_API_TOKEN is set: {'OKTA_API_TOKEN' in os.environ}")
 
 LOG_FILE = os.environ.get("OKTA_LOG_FILE")
 

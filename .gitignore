@@ -80,3 +80,61 @@ venv.bak/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# === Okta MCP Server Specific ===
+
+# Environment variables and secrets (all variations)
+.env.*
+*.env
+!.env.example
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!terraform.tfvars.example
+
+# Secrets and keys
+secrets/
+*.pem
+*.key
+*.crt
+*.p12
+id_rsa*
+*.ppk
+
+# Configuration files with sensitive data
+config/production.yaml
+config/staging.yaml
+config/local.yaml
+claude_desktop_config.json
+!claude_desktop_config.json.example
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Keyring/credential storage
+*.keyring
+credentials/
+
+# Okta-specific
+okta_api_token.txt
+

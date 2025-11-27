@@ -8,6 +8,7 @@
 import keyring
 from loguru import logger
 from okta.client import Client as OktaClient
+import os
 
 from okta_mcp_server.utils.auth.auth_manager import SERVICE_NAME, OktaAuthManager
 
@@ -15,16 +16,24 @@ from okta_mcp_server.utils.auth.auth_manager import SERVICE_NAME, OktaAuthManage
 async def get_okta_client(manager: OktaAuthManager) -> OktaClient:
     """Initialize and return an Okta client"""
     logger.debug("Initializing Okta client")
-    api_token = keyring.get_password(SERVICE_NAME, "api_token")
-    if not await manager.is_valid_token():
-        logger.warning("Token is invalid or expired, re-authenticating")
-        await manager.authenticate()
-        api_token = keyring.get_password(SERVICE_NAME, "api_token")
+    
+    # Get API token from environment instead of keyring
+    api_token = os.environ.get("OKTA_API_TOKEN")
+    
+    logger.info(f"API token is set: {api_token is not None}")
+    if api_token:
+        logger.info(f"API token starts with: {api_token[:6]}...")
+    
+    if not api_token:
+        logger.error("OKTA_API_TOKEN not found in environment variables")
+        raise ValueError("OKTA_API_TOKEN must be set")
+    
     config = {
-        "orgUrl": manager.org_url,
+        "orgUrl": os.environ.get("OKTA_API_BASE_URL", "https://integrator-7772662.okta.com"),
         "token": api_token,
-        "authorizationMode": "Bearer",
+        "authorizationMode": "SSWS",
         "userAgent": "okta-mcp-server/0.0.1",
     }
-    logger.debug(f"Okta client configured for org: {manager.org_url}")
+    logger.info(f"Okta client configured with orgUrl: {config['orgUrl']}")
     return OktaClient(config)
+
