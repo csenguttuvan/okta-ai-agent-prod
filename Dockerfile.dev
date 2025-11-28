@@ -1,0 +1,24 @@
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install uv
+RUN pip install --no-cache-dir uv
+
+# Copy project configuration and source
+COPY pyproject.toml ./
+COPY src/ ./src/
+COPY README.md ./
+
+# Install the package (this makes okta-mcp-server command available)
+RUN uv pip install --system .
+
+# Environment variables
+ENV OKTA_LOG_LEVEL=INFO
+
+# Run using the installed command
+CMD ["okta-mcp-server"]

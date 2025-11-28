@@ -59,7 +59,7 @@ This section documents common issues encountered during development and their so
 Find any remaining print statements
 grep -r "print(" src/
 
-text
+
 
 ---
 
@@ -73,14 +73,14 @@ text
 WRONG - Using OAuth issuer for API calls
 orgUrl = "https://your-org.okta.com/oauth2/ausxxx..."
 
-text
+
 
 **Solution:**
 CORRECT - Separate URLs for different purposes
 OKTA_ORG_URL = "https://your-org.okta.com/oauth2/ausxxx..." # For OAuth/device flow
 OKTA_API_BASE_URL = "https://your-org.okta.com" # For resource APIs
 
-text
+
 
 **Key Insight:**
 - OAuth endpoints: `/oauth2/{authServerId}/v1/token`
@@ -97,18 +97,17 @@ text
 
 **Solutions:**
 
+}
 #### A. Authorization Mode Mismatch
 WRONG - Bearer is for OAuth access tokens
 config = {
 "authorizationMode": "Bearer"
-}
 
 CORRECT - SSWS is for Okta API tokens
 config = {
 "authorizationMode": "SSWS"
 }
 
-text
 
 #### B. Using OAuth Token Instead of API Token
 WRONG - Using OAuth access token from keyring
@@ -117,7 +116,7 @@ api_token = keyring.get_password(SERVICE_NAME, "api_token")
 CORRECT - Using API token from environment
 api_token = os.environ.get("OKTA_API_TOKEN")
 
-text
+
 
 ---
 
@@ -141,7 +140,7 @@ text
 }
 }
 
-text
+
 
 **Remember:** Completely quit and restart Claude Desktop after config changes (Cmd+Q on Mac)
 
@@ -155,7 +154,7 @@ text
 find . -type d -name "pycache" -exec rm -r {} + 2>/dev/null
 find . -name "*.pyc" -delete
 
-text
+
 
 Then completely restart Claude Desktop.
 
@@ -195,7 +194,7 @@ config = {
 "userAgent": "okta-mcp-server/0.0.1"
 }
 
-text
+
 
 ---
 
@@ -207,13 +206,13 @@ tail -f ~/Library/Logs/Claude/mcp-server-okta-mcp-server.log
 
 Or open Developer Tools in Claude Desktop
 Cmd+Option+I → Console tab
-text
+
 
 ### Test API Token Directly
 curl -H "Authorization: SSWS your_api_token"
 "https://your-org.okta.com/api/v1/users?limit=1"
 
-text
+
 
 Should return user data (not 401 or 404).
 
@@ -223,7 +222,17 @@ import os
 logger.info(f"OKTA_API_BASE_URL: {os.environ.get('OKTA_API_BASE_URL')}")
 logger.info(f"OKTA_API_TOKEN is set: {'OKTA_API_TOKEN' in os.environ}")
 
-text
+
+The issue was the Okta SDK version mismatch between your local environment (2.9.13) and Docker (3.0.0). By pinning dependencies with == instead of >= in your pyproject.toml, both environments now use identical package versions, ensuring consistent object serialization.​
+
+Summary of Changes Made
+✅ Fixed server.py - Made main() async and added await mcp.run_stdio_async()
+
+✅ Fixed __init__.py - Added asyncio.run(server.main())
+
+✅ Fixed groups.py - Changed error returns to raise exceptions
+
+✅ Pinned dependencies - Locked exact versions in pyproject.toml
 
 ---
 

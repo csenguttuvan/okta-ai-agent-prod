@@ -13,7 +13,7 @@ LOG_FILE = os.environ.get("OKTA_LOG_FILE")
 # Simple MCP server without authentication lifecycle
 mcp = FastMCP("Okta IDaaS MCP Server")
 
-def main():
+async def main():
     """Run the Okta MCP server."""
     logger.remove()
 
@@ -53,4 +53,4 @@ def main():
     from okta_mcp_server.tools.users import users  # noqa: F401
 
     logger.info("Okta MCP Server started successfully")
-    mcp.run()
+    await mcp.run_stdio_async()
