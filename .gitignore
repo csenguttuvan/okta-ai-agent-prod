@@ -111,6 +111,7 @@ Thumbs.db
 *.tfvars
 !terraform.tfvars.example
 
+
 # Secrets and keys
 secrets/
 *.pem

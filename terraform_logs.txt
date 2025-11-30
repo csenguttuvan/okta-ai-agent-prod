@@ -1,0 +1,58 @@
+2025-11-30T19:43:55.804Z [INFO]  Terraform version: 1.5.7
+2025-11-30T19:43:55.805Z [DEBUG] using github.com/hashicorp/go-tfe v1.26.0
+2025-11-30T19:43:55.805Z [DEBUG] using github.com/hashicorp/hcl/v2 v2.16.2
+2025-11-30T19:43:55.805Z [DEBUG] using github.com/hashicorp/terraform-svchost v0.1.0
+2025-11-30T19:43:55.805Z [DEBUG] using github.com/zclconf/go-cty v1.12.2
+2025-11-30T19:43:55.805Z [INFO]  Go runtime version: go1.23.1
+2025-11-30T19:43:55.805Z [INFO]  CLI args: []string{"terraform", "fmt"}
+2025-11-30T19:43:55.805Z [TRACE] Stdout is a terminal of width 146
+2025-11-30T19:43:55.805Z [TRACE] Stderr is a terminal of width 146
+2025-11-30T19:43:55.805Z [TRACE] Stdin is a terminal
+2025-11-30T19:43:55.805Z [DEBUG] Attempting to open CLI config file: /Users/chrissenguttuvan/.terraformrc
+2025-11-30T19:43:55.805Z [DEBUG] File doesn't exist, but doesn't need to. Ignoring.
+2025-11-30T19:43:55.806Z [INFO]  Loading CLI configuration from /Users/chrissenguttuvan/.terraform.d/credentials.tfrc.json
+2025-11-30T19:43:55.813Z [DEBUG] ignoring non-existing provider search directory terraform.d/plugins
+2025-11-30T19:43:55.813Z [DEBUG] ignoring non-existing provider search directory /Users/chrissenguttuvan/.terraform.d/plugins
+2025-11-30T19:43:55.813Z [DEBUG] ignoring non-existing provider search directory /Users/chrissenguttuvan/Library/Application Support/io.terraform/plugins
+2025-11-30T19:43:55.813Z [DEBUG] ignoring non-existing provider search directory /Library/Application Support/io.terraform/plugins
+2025-11-30T19:43:55.814Z [INFO]  CLI command args: []string{"fmt"}
+2025-11-30T19:43:55.815Z [TRACE] terraform fmt: looking for files in .
+2025-11-30T19:44:06.386Z [INFO]  Terraform version: 1.5.7
+2025-11-30T19:44:06.387Z [DEBUG] using github.com/hashicorp/go-tfe v1.26.0
+2025-11-30T19:44:06.387Z [DEBUG] using github.com/hashicorp/hcl/v2 v2.16.2
+2025-11-30T19:44:06.387Z [DEBUG] using github.com/hashicorp/terraform-svchost v0.1.0
+2025-11-30T19:44:06.387Z [DEBUG] using github.com/zclconf/go-cty v1.12.2
+2025-11-30T19:44:06.387Z [INFO]  Go runtime version: go1.23.1
+2025-11-30T19:44:06.387Z [INFO]  CLI args: []string{"terraform", "fmt", "-recursive"}
+2025-11-30T19:44:06.387Z [TRACE] Stdout is a terminal of width 146
+2025-11-30T19:44:06.387Z [TRACE] Stderr is a terminal of width 146
+2025-11-30T19:44:06.387Z [TRACE] Stdin is a terminal
+2025-11-30T19:44:06.387Z [DEBUG] Attempting to open CLI config file: /Users/chrissenguttuvan/.terraformrc
+2025-11-30T19:44:06.387Z [DEBUG] File doesn't exist, but doesn't need to. Ignoring.
+2025-11-30T19:44:06.387Z [INFO]  Loading CLI configuration from /Users/chrissenguttuvan/.terraform.d/credentials.tfrc.json
+2025-11-30T19:44:06.387Z [DEBUG] ignoring non-existing provider search directory terraform.d/plugins
+2025-11-30T19:44:06.387Z [DEBUG] ignoring non-existing provider search directory /Users/chrissenguttuvan/.terraform.d/plugins
+2025-11-30T19:44:06.387Z [DEBUG] ignoring non-existing provider search directory /Users/chrissenguttuvan/Library/Application Support/io.terraform/plugins
+2025-11-30T19:44:06.387Z [DEBUG] ignoring non-existing provider search directory /Library/Application Support/io.terraform/plugins
+2025-11-30T19:44:06.388Z [INFO]  CLI command args: []string{"fmt", "-recursive"}
+2025-11-30T19:44:06.388Z [TRACE] terraform fmt: looking for files in .
+2025-11-30T19:44:06.388Z [TRACE] terraform fmt: looking for files in assets
+2025-11-30T19:44:06.388Z [TRACE] terraform fmt: looking for files in src
+2025-11-30T19:44:06.388Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server
+2025-11-30T19:44:06.389Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/__pycache__
+2025-11-30T19:44:06.390Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools
+2025-11-30T19:44:06.390Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/__pycache__
+2025-11-30T19:44:06.392Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/applications
+2025-11-30T19:44:06.393Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/applications/__pycache__
+2025-11-30T19:44:06.394Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/groups
+2025-11-30T19:44:06.395Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/groups/__pycache__
+2025-11-30T19:44:06.396Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/policies
+2025-11-30T19:44:06.396Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/policies/__pycache__
+2025-11-30T19:44:06.398Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/system_logs
+2025-11-30T19:44:06.399Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/system_logs/__pycache__
+2025-11-30T19:44:06.399Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/users
+2025-11-30T19:44:06.399Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/tools/users/__pycache__
+2025-11-30T19:44:06.399Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/utils
+2025-11-30T19:44:06.400Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/utils/__pycache__
+2025-11-30T19:44:06.400Z [TRACE] terraform fmt: looking for files in src/okta_mcp_server/utils/auth
+2025-11-30T19:44:06.400Z [TRACE] terraform fmt: looking for files in tests

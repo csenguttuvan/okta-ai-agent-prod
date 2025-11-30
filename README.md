@@ -1,64 +1,64 @@
 Okta MCP Server
 A Model Context Protocol (MCP) server that enables Claude Desktop and other MCP clients to interact with Okta's Identity and Access Management platform.
 
-[
 
 Table of Contents
 Features
 
-Prerequisites
+    Prerequisites
 
-Installation
+    Installation
 
-Using Docker (Recommended)
+        Using Docker (Recommended)
 
-From Source
+        From Source
 
-Configuration
+    Configuration
 
-Claude Desktop Integration
+        Claude Desktop Integration
 
-Available Tools
+    Available Tools
 
-Usage Examples
+    Usage Examples
 
-Troubleshooting
+    Troubleshooting
 
-Security
+    Security
 
-Contributing
+    Contributing
 
-License
+    License
 
 Features
-User Management: List, create, update, and manage Okta users
 
-Group Management: Create and manage groups, add/remove users
+    User Management: List, create, update, and manage Okta users
 
-Application Access: View applications and their assignments
+    Group Management: Create and manage groups, add/remove users
 
-System Logs: Query Okta system logs for auditing
+    Application Access: View applications and their assignments
 
-Policy Access: Read-only access to Okta policies
+    System Logs: Query Okta system logs for auditing
 
-Pagination Support: Efficiently handle large datasets
+    Policy Access: Read-only access to Okta policies
+
+    Pagination Support: Efficiently handle large datasets
 
 Prerequisites
-Docker (recommended) OR Python 3.13+
+    Docker (recommended) OR Python 3.13+
 
-Okta organization with API access
+    Okta organization with API access
 
-Okta API token with appropriate permissions:
+    Okta API token with appropriate permissions:
 
-okta.users.read / okta.users.manage
+        okta.users.read / okta.users.manage
 
-okta.groups.read / okta.groups.manage
+        okta.groups.read / okta.groups.manage
 
-okta.apps.read
+        okta.apps.read
 
-okta.logs.read
+        okta.logs.read
 
-okta.policies.read
+        okta.policies.read
 
 Installation
 Using Docker (Recommended)
