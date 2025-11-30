@@ -1,16 +1,16 @@
-output "alb_dns_name" {
-  description = "Internal ALB DNS name (use via VPN)"
-  value       = aws_lb.mcp.dns_name
-}
-
 output "mcp_private_ip" {
-  description = "MCP server private IP"
+  description = "MCP server private IP (for VPN access)"
   value       = aws_instance.mcp_server.private_ip
 }
 
-output "secrets_arn" {
-  description = "Secrets Manager ARN"
-  value       = aws_secretsmanager_secret.okta_mcp.arn
+output "mcp_public_ip" {
+  description = "MCP server public IP (temporary for testing)"
+  value       = aws_instance.mcp_server.public_ip
+}
+
+output "ssh_command" {
+  description = "SSH command to connect"
+  value       = "ssh -i ${var.ec2_key_name}.pem ec2-user@${aws_instance.mcp_server.private_ip}"
 }
 
 output "claude_config" {
@@ -18,8 +18,19 @@ output "claude_config" {
   value = jsonencode({
     mcpServers = {
       "okta-prod" = {
-        url       = "http://${aws_lb.mcp.dns_name}:8080"
-        transport = "http-streaming"
+        command = "ssh"
+        args = [
+          "-i",
+          "~/.ssh/${var.ec2_key_name}.pem",
+          "ec2-user@${aws_instance.mcp_server.private_ip}",
+          "docker",
+          "run",
+          "--rm",
+          "-i",
+          "--env-file",
+          "/etc/okta-mcp.env",
+          "blackstaa/okta-mcp-server:prod"
+        ]
       }
     }
   })
