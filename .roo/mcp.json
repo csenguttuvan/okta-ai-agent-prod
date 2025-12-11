@@ -1,0 +1,14 @@
+
+{
+  "mcpServers": {
+    "okta-local": {
+      "command": "/bin/sh",
+      "args": [
+        "-c",
+        "cd /Users/chrissenguttuvan/Desktop/okta-ai-agent/okta-mcp-server && uv run okta-mcp-server"
+      ],
+      "description": "Okta MCP - OAuth Read-Only"
+    }
+  }
+}
+

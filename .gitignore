@@ -139,3 +139,6 @@ credentials/
 # Okta-specific
 okta_api_token.txt
 
+# Roo Code
+.roo/.cache/keys/private_key.pem
+keys/private_key.pem

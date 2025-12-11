@@ -1,0 +1,52 @@
+variable "aws_region" {
+  description = "AWS region"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "key_name" {
+  description = "SSH key pair name (must exist in AWS)"
+  type        = string
+}
+
+variable "okta_api_base_url" {
+  description = "Okta organization URL"
+  type        = string
+  default     = "https://integrator-7772662.okta.com"
+}
+
+variable "okta_client_id" {
+  description = "Okta OAuth client ID (read-only app)"
+  type        = string
+  default     = "0oay0b661jlQnwFJG697"
+}
+
+variable "okta_scopes" {
+  description = "Okta API scopes (with okta. prefix)"
+  type        = string
+  default     = "okta.users.read okta.groups.read okta.apps.read okta.logs.read"
+}
+
+variable "docker_image" {
+  description = "Docker image for Okta MCP server"
+  type        = string
+  default     = "blackstaa/okta-mcp-server:latest"
+}
+
+variable "okta_admin_client_id" {
+  description = "Okta OAuth client ID (admin app)"
+  type        = string
+  default     = "0oay0p5kq9WhsKa9c697"
+}
+
+variable "okta_admin_scopes" {
+  description = "Okta API scopes (admin with write)"
+  type        = string
+  default     = "okta.users.read okta.users.manage okta.groups.read okta.groups.manage okta.apps.read okta.apps.manage okta.logs.read"
+}
