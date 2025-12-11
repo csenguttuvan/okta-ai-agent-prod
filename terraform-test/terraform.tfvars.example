@@ -3,10 +3,10 @@ instance_type  = "t3.micro"
 key_name       = "your-ssh-key-name"
 
 # Read-only credentials
-okta_client_id     = "0oay0b661jlQnwFJG697"
+okta_client_id     = ""
 okta_scopes        = "users.read groups.read apps.read logs.read"
 
 # OR Admin credentials
-# okta_client_id     = "0oay0p5kq9WhsKa9c697"
+# okta_client_id     = ""
 # okta_client_secret = ""
 # okta_scopes        = "users.read users.manage groups.read apps.read logs.read"
