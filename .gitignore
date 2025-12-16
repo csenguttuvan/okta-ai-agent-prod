@@ -24,4 +24,6 @@ Thumbs.db
 .idea/
 *.swp
 .env
-.env.*
+.env.admin
+.env.readonly
+.envrc
