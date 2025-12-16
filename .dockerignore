@@ -1,0 +1,67 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.venv
+venv
+.pytest_cache
+
+# Environment files (secrets)
+.env
+.env.*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Terraform
+terraform/
+*.tfstate
+*.tfstate.backup
+.terraform/
+terraform_logs.txt
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Test files
+tests/
+test_*.py
+
+# Roo Code config
+.roo/
+
+# Docker
+Dockerfile.dev
+docker-compose*.yml
+
+# Assets
+assets/
+
+# Misc
+*.log
+.DS_Store
+requirements.txt
+claude_desktop_config.json.exmaple
+CHANGELOG.md
+CONTRIBUTING.md
+NOTICE.md
+SECURITY.md
+LICENSE
+dependency_scan.sh

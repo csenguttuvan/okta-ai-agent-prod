@@ -1,146 +1,25 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+terraform_logs.txt
+crash.log
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# PyCharm
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-.idea/
-
-# Visual Studio Code
-#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
-#  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#  and can be added to the global gitignore or merged into this file. However, if you prefer, 
-#  you could uncomment the following to ignore the entire vscode folder
-.vscode/
-
-# Ruff stuff:
-.ruff_cache/
-
-# Cursor
-#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
-#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
-#  refer to https://docs.cursor.com/context/ignore-files
-.cursorignore
-.cursorindexingignore
-
-# === Okta MCP Server Specific ===
-
-# Environment variables and secrets (all variations)
-.env.*
-*.env
-!.env.example
+# SSH Keys
+*.pem
+*.key
 
 # Logs
 *.log
 logs/
-*.log.*
 
-# OS-specific files
+# OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 
-# Terraform
-*.tfstate
-*.tfstate.*
-*.tfstate.backup
-.terraform/
-.terraform.lock.hcl
-*.tfvars
-!terraform.tfvars.example
-
-
-# Secrets and keys
-secrets/
-*.pem
-*.key
-*.crt
-*.p12
-id_rsa*
-*.ppk
-
-# Configuration files with sensitive data
-config/production.yaml
-config/staging.yaml
-config/local.yaml
-claude_desktop_config.json
-!claude_desktop_config.json.example
-
-# Docker
-docker-compose.override.yml
-.dockerignore
-
-# Keyring/credential storage
-*.keyring
-credentials/
-
-# Okta-specific
-okta_api_token.txt
-
-# Roo Code
-.roo/.cache/keys/private_key.pem
-keys/private_key.pem
-terraform_logs.txt
-terraform-test/
+# IDE
+.vscode/
+.idea/
+*.swp

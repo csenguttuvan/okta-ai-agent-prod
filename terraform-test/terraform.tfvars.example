@@ -1,0 +1,12 @@
+aws_region     = "us-east-1"
+instance_type  = "t3.micro"
+key_name       = "your-ssh-key-name"
+
+# Read-only credentials
+okta_client_id     = ""
+okta_scopes        = "users.read groups.read apps.read logs.read"
+
+# OR Admin credentials
+# okta_client_id     = ""
+# okta_client_secret = ""
+# okta_scopes        = "users.read users.manage groups.read apps.read logs.read"
