@@ -1,283 +1,337 @@
-Okta MCP Server
-A Model Context Protocol (MCP) server that enables Claude Desktop and other MCP clients to interact with Okta's Identity and Access Management platform.
+# Okta MCP Server with AWS Infrastructure
 
+A complete Model Context Protocol (MCP) server implementation for Okta management, deployed on AWS with LiteLLM proxy for Claude 3.5 Sonnet integration via AWS Bedrock.
 
-Table of Contents
-Features
+## 🏗️ Architecture
 
-    Prerequisites
+```
+Claude Desktop (Local Machine)
+    ↓ SSH Tunnel (ports 8080/8081)
+EC2 Instance (AWS us-east-1)
+    ├─ MCP Admin Server (port 8080) - Full read/write access
+    ├─ MCP Readonly Server (port 8081) - Read-only access
+    └─ LiteLLM Proxy (port 4000) - AWS Bedrock Claude 3.5 Sonnet
+```
 
-    Installation
+**Data Privacy:** All AI inference happens within AWS Bedrock in us-east-1. Your prompts never leave AWS and are not used for model training.
 
-        Using Docker (Recommended)
+## ✨ Features
 
-        From Source
+### Okta Management Tools
+- **Users:** Create, list, search, deactivate, and delete users
+- **Groups:** Manage groups, members, and assignments
+- **Applications:** List and manage Okta applications
+- **Policies:** View and manage authentication policies
+- **System Logs:** Query audit logs with filters
 
-    Configuration
+### Infrastructure
+- **Terraform-managed AWS deployment** (VPC, EC2, Secrets Manager, IAM)
+- **Two MCP servers:** Admin (full access) and Readonly (safe queries)
+- **LiteLLM API Gateway:** OpenAI-compatible API for AWS Bedrock
+- **OAuth 2.0 JWT authentication** with Okta private key
+- **Automated deployment** via user-data script
 
-        Claude Desktop Integration
+## 🚀 Quick Start
 
-    Available Tools
+### Prerequisites
 
-    Usage Examples
+- AWS CLI configured with credentials
+- Terraform >= 1.0
+- Okta account with OAuth 2.0 application
+- SSH key pair for EC2 access
 
-    Troubleshooting
+### 1. Clone and Configure
 
-    Security
+```bash
+git clone <your-repo-url>
+cd okta-mcp-aws
 
-    Contributing
+# Copy and configure variables
+cp terraform.tfvars.example terraform.tfvars
+```
 
-    License
+Edit `terraform.tfvars`:
+```hcl
+aws_region          = "us-east-1"
+project_name        = "okta-mcp"
+key_name            = "your-key-name"
+okta_domain         = "your-domain.okta.com"
+okta_client_id      = "your-client-id"
+okta_private_key    = "-----BEGIN RSA PRIVATE KEY-----\n..."
+litellm_master_key  = "sk-YOUR-SECURE-KEY"
+```
 
-Features
+### 2. Deploy Infrastructure
 
-    User Management: List, create, update, and manage Okta users
+```bash
+terraform init
+terraform plan
+terraform apply
+```
 
-    Group Management: Create and manage groups, add/remove users
+### 3. Verify Deployment
 
-    Application Access: View applications and their assignments
+```bash
+# Get instance IP
+terraform output instance_public_ip
 
-    System Logs: Query Okta system logs for auditing
+# SSH into instance
+ssh -i ~/.ssh/your-key.pem ec2-user@<INSTANCE_IP>
 
-    Policy Access: Read-only access to Okta policies
+# Check services
+sudo systemctl status okta-mcp-admin
+sudo systemctl status okta-mcp-readonly
+sudo systemctl status litellm
+```
 
-    Pagination Support: Efficiently handle large datasets
+### 4. Test LiteLLM Proxy
 
-Prerequisites
-    Docker (recommended) OR Python 3.13+
+```bash
+export LITELLM_KEY=$(terraform output -raw litellm_master_key)
 
-    Okta organization with API access
+curl http://localhost:4000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LITELLM_KEY" \
+  -d '{
+    "model": "bedrock-claude",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
 
-    Okta API token with appropriate permissions:
+### 5. Connect Claude Desktop
 
-        okta.users.read / okta.users.manage
+**Create SSH tunnel:**
+```bash
+ssh -L 8080:localhost:8080 -L 8081:localhost:8081 \
+  -i ~/.ssh/your-key.pem ec2-user@<INSTANCE_IP> -N
+```
 
-        okta.groups.read / okta.groups.manage
+**Configure Claude Desktop:**
 
-        okta.apps.read
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
-        okta.logs.read
-
-        okta.policies.read
-
-Installation
-Using Docker (Recommended)
-Pull the image from Docker Hub:
-
-bash
-docker pull blackstaa/okta-mcp-server:dev
-Test the installation:
-
-bash
-docker run --rm -i \
-  -e OKTA_API_BASE_URL="https://your-org.okta.com" \
-  -e OKTA_API_TOKEN="your_api_token_here" \
-  blackstaa/okta-mcp-server:dev
-📖 Complete Docker Documentation
-
-From Source
-Clone the repository:
-
-bash
-git clone <repository-url>
-cd okta-mcp-server
-Install dependencies:
-
-bash
-pip install -e .
-Or with uv:
-
-bash
-uv pip install -e .
-Set environment variables:
-
-bash
-cp .env.example .env
-# Edit .env with your Okta credentials
-Run the server:
-
-bash
-uv run okta-mcp-server
-Configuration
-Required Environment Variables
-Variable	Description	Example
-OKTA_API_BASE_URL	Your Okta organization URL	https://dev-12345.okta.com
-OKTA_API_TOKEN	Your Okta API token	00abc...
-OKTA_LOG_LEVEL	Logging level (optional)	INFO, DEBUG
-Claude Desktop Integration
-Add to your Claude Desktop configuration file:
-
-macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
-
-Windows: %APPDATA%\Claude\claude_desktop_config.json
-
-Linux: ~/.config/Claude/claude_desktop_config.json
-
-Using Docker:
-json
+```json
 {
   "mcpServers": {
-    "okta": {
-      "command": "docker",
+    "okta-admin": {
+      "command": "npx",
       "args": [
-        "run",
-        "--rm",
-        "-i",
-        "-e",
-        "OKTA_API_BASE_URL=https://your-org.okta.com",
-        "-e",
-        "OKTA_API_TOKEN=your_api_token_here",
-        "blackstaa/okta-mcp-server:dev"
+        "mcp-remote",
+        "http://localhost:8080/sse"
+      ]
+    },
+    "okta-readonly": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8081/sse"
       ]
     }
   }
 }
-Using local installation with uv:
-json
-{
-  "mcpServers": {
-    "okta": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/okta-mcp-server",
-        "run",
-        "okta-mcp-server"
-      ],
-      "env": {
-        "OKTA_API_BASE_URL": "https://your-org.okta.com",
-        "OKTA_API_TOKEN": "your_api_token_here"
-      }
-    }
-  }
-}
-Important: Completely restart Claude Desktop after updating the configuration (Cmd+Q on macOS).
+```
 
-Available Tools
-User Management
-list_users - List users with filtering and pagination
+**Restart Claude Desktop** and look for the MCP icon (🔨).
 
-get_user - Get user details by ID
+## 📋 Available MCP Tools
 
-create_user - Create a new user
+### Admin Server (Read/Write)
+- `create_user` - Create new Okta users
+- `deactivate_user` - Deactivate existing users
+- `delete_user` - Delete users (must be deactivated first)
+- `list_users` - List all users with pagination
+- `search_users` - Search users by query
+- `get_user` - Get detailed user information
+- Plus all readonly tools
 
-update_user - Update user profile
+### Readonly Server (Safe Queries)
+- `list_users` - View all users
+- `get_user` - Get user details
+- `search_users` - Search for users
+- `list_groups` - View all groups
+- `get_group` - Get group details
+- `list_group_members` - View group membership
+- `list_applications` - View applications
+- `get_application` - Get app details
+- `list_policies` - View authentication policies
+- `get_system_logs` - Query audit logs
 
-delete_user - Delete a user (requires confirmation)
+## 🔧 Configuration
 
-activate_user - Activate a user account
+### Okta OAuth 2.0 Setup
 
-deactivate_user - Deactivate a user account
+1. In Okta Admin Console, create a new **API Services** application
+2. Grant required scopes:
+   - `okta.users.read`
+   - `okta.users.manage` (admin server only)
+   - `okta.groups.read`
+   - `okta.apps.read`
+   - `okta.policies.read`
+   - `okta.logs.read`
+3. Generate a private key and save it
+4. Add the private key to `terraform.tfvars` (escape newlines with `\n`)
 
-suspend_user / unsuspend_user - Suspend/unsuspend accounts
+### AWS Bedrock Setup
 
-Group Management
-list_groups - List groups with filtering and pagination
+1. Enable AWS Bedrock in us-east-1
+2. Subscribe to Claude 3.5 Sonnet in AWS Marketplace
+3. Request model access in Bedrock console
+4. Ensure IAM role has `bedrock:InvokeModel` permission
 
-get_group - Get group details by ID
+### LiteLLM Configuration
 
-create_group - Create a new group
+Edit `litellm-config.yaml` to add models or change settings:
 
-update_group - Update group profile
+```yaml
+model_list:
+  - model_name: bedrock-claude
+    litellm_params:
+      model: bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
+      aws_region_name: us-east-1
 
-delete_group - Delete a group (requires confirmation)
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+```
 
-list_group_users - List users in a group
+## 🔐 Security
 
-list_group_apps - List applications assigned to a group
+- **Secrets in AWS Secrets Manager** - No hardcoded credentials
+- **Private key JWT authentication** - More secure than API tokens
+- **IAM role-based access** - EC2 instance uses IAM for AWS services
+- **VPC isolation** - EC2 in private subnet with NAT gateway
+- **Security groups** - Restricted inbound access (SSH only)
+- **Data residency** - All AI processing stays in AWS us-east-1
 
-add_user_to_group / remove_user_from_group - Manage group membership
+## 📊 Monitoring
 
-Application Management
-list_applications - List applications with pagination
+### Check Service Logs
 
-get_application - Get application details by ID
+```bash
+# Admin server
+sudo journalctl -u okta-mcp-admin -f
 
-list_application_users - List users assigned to an application
+# Readonly server
+sudo journalctl -u okta-mcp-readonly -f
 
-list_application_groups - List groups assigned to an application
+# LiteLLM
+sudo journalctl -u litellm -f
+```
 
-Policies & Logs
-list_policies - List policies with filtering
+### CloudWatch Integration
 
-get_policy - Get policy details by ID
+Logs are automatically sent to CloudWatch Logs (configured in user-data.sh).
 
-get_system_logs - Query system logs with filtering
+## 🐛 Troubleshooting
 
-Usage Examples
-List All Users
-"Show me all users in my Okta organization"
+### MCP Server Connection Failed
 
-Find Users by Email Domain
-"List all users with @company.com email addresses"
+1. Verify SSH tunnel is running
+2. Check server status: `sudo systemctl status okta-mcp-admin`
+3. View logs: `sudo journalctl -u okta-mcp-admin -n 50`
+4. Test endpoint: `curl http://localhost:8080/health`
 
-Create a New Group
-"Create a group called 'Engineering' with description 'Engineering team members'"
+### LiteLLM Bedrock Errors
 
-Add Users to Group
-"Add user john.doe@company.com to the Engineering group"
+**Error: "Not subscribed to Bedrock model"**
+- Subscribe to Claude 3.5 Sonnet in AWS Marketplace
+- Wait 2-3 minutes for subscription to propagate
 
-Query System Logs
-"Show me all login attempts in the last 24 hours"
+**Error: "AccessDeniedException"**
+- Check IAM role has `bedrock:InvokeModel` permission
+- Verify model access enabled in Bedrock console
 
-Troubleshooting
-Common Issues
-Container exits immediately: This is normal for STDIO MCP servers. The container runs only when Claude connects to it.
+### Okta Authentication Failed
 
-Authentication errors: Verify your API token has the required scopes in Okta Admin Console → Security → API → Tokens.
+1. Verify credentials in Secrets Manager:
+   ```bash
+   aws secretsmanager get-secret-value --secret-id okta-mcp/credentials
+   ```
+2. Check private key format (must include `\n` for newlines)
+3. Verify OAuth scopes in Okta application
 
-Connection errors: Test your credentials:
+## 🔄 Updates and Maintenance
 
-bash
-curl -H "Authorization: SSWS your_api_token" \
-  "https://your-org.okta.com/api/v1/users?limit=1"
-Changes not taking effect: After updating configuration, fully quit and restart Claude Desktop.
+### Update MCP Servers
 
-📖 Detailed Troubleshooting Guide
+```bash
+ssh -i ~/.ssh/your-key.pem ec2-user@<INSTANCE_IP>
 
-Security
-⚠️ Never commit API tokens to version control
+# Update admin server
+cd /home/ec2-user/okta-mcp-admin
+git pull
+pip install -e .
+sudo systemctl restart okta-mcp-admin
 
-✅ Use environment variables for all credentials
+# Update readonly server
+cd /home/ec2-user/okta-mcp-server
+git pull
+pip install -e .
+sudo systemctl restart okta-mcp-readonly
+```
 
-✅ Rotate API tokens regularly
+### Update Infrastructure
 
-✅ Use least-privilege tokens with only required scopes
+```bash
+# Make changes to .tf files
+terraform plan
+terraform apply
+```
 
-✅ Keep .env in .gitignore
+## 📁 Project Structure
 
-✅ Monitor API usage through Okta's system logs
+```
+.
+├── main.tf                    # Main infrastructure
+├── vpc.tf                     # VPC and networking
+├── iam.tf                     # IAM roles and policies
+├── secrets.tf                 # Secrets Manager resources
+├── security_groups.tf         # Security group rules
+├── outputs.tf                 # Terraform outputs
+├── variables.tf               # Input variables
+├── terraform.tfvars           # Your configuration (gitignored)
+├── user-data.sh               # EC2 initialization script
+├── litellm-config.yaml        # LiteLLM configuration
+└── README.md                  # This file
+```
 
-Architecture Notes
-This server uses:
+## 💰 Cost Estimate
 
-Python 3.13
+**AWS Resources (us-east-1):**
+- EC2 t3.medium: ~$30/month
+- NAT Gateway: ~$32/month
+- EBS storage (20GB): ~$2/month
+- Secrets Manager: ~$1/month
+- Data transfer: Variable
+- **AWS Bedrock Claude 3.5 Sonnet:** Pay-per-use (~$3 per million input tokens)
 
-MCP SDK 1.9.2
+**Total:** ~$65-75/month + Bedrock usage
 
-Okta SDK 2.9.13
+## 🤝 Contributing
 
-SSWS authentication (API token-based)
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-STDIO transport for MCP communication
+## 📝 License
 
-Contributing
-Contributions are welcome! Please:
+MIT License - See LICENSE file for details
 
-Fork the repository
+## 🙏 Acknowledgments
 
-Create a feature branch
+- [Model Context Protocol](https://modelcontextprotocol.io/) by Anthropic
+- [LiteLLM](https://github.com/BerriAI/litellm) by BerriAI
+- [Okta Management API](https://developer.okta.com/docs/reference/)
+- [AWS Bedrock](https://aws.amazon.com/bedrock/)
 
-Submit a pull request
+## 📞 Support
 
-License
-Licensed under the Apache License, Version 2.0. See LICENSE file for details.
+For issues and questions:
+- Open a GitHub issue
+- Check [MCP documentation](https://modelcontextprotocol.io/)
+- Review [AWS Bedrock docs](https://docs.aws.amazon.com/bedrock/)
 
-Support
-Issues: [GitHub Issues]https://github.com/csenguttuvan/okta-ai-agent/issues
+---
 
-Docker Hub: blackstaa/okta-mcp-server
-
-Okta Developer Docs: developer.okta.com
-
-Built with ❤️ for the MCP community
+**Built with ❤️ for secure, privacy-focused Okta automation**

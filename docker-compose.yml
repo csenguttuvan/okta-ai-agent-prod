@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm-proxy
+    network_mode: "host"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+      - ./litellm-data:/app/data
+    env_file:
+      - .env
+    environment:
+      - PORT=4000
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "4"]
+    restart: unless-stopped
+
+  okta-mcp-admin:
+    image: blackstaa/okta-mcp-server:latest
+    container_name: okta-mcp-admin
+    network_mode: "host"
+    volumes:
+      - ./keys:/app/keys:ro
+    env_file:
+      - .env
+    environment:
+      - OKTA_PRIVATE_KEY_PATH=/app/keys/admin_private_key.pem
+      - OKTA_CLIENT_ID=${OKTA_ADMIN_CLIENT_ID}
+      - OKTA_SCOPES=${OKTA_ADMIN_SCOPES}
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=8080
+      - MCP_HOST=0.0.0.0
+      - MCP_SERVER_NAME=okta-admin
+    restart: unless-stopped
+
+  okta-mcp-readonly:
+    image: blackstaa/okta-mcp-server:latest
+    container_name: okta-mcp-readonly
+    network_mode: "host"
+    volumes:
+      - ./keys:/app/keys:ro
+    env_file:
+      - .env
+    environment:
+      - OKTA_PRIVATE_KEY_PATH=/app/keys/readonly_private_key.pem
+      - OKTA_CLIENT_ID=${OKTA_READONLY_CLIENT_ID}
+      - OKTA_SCOPES=${OKTA_READONLY_SCOPES}
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=8081
+      - MCP_HOST=0.0.0.0
+      - MCP_SERVER_NAME=okta-readonly
+    restart: unless-stopped

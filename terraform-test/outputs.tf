@@ -1,41 +1,29 @@
-output "vpc_id" {
-  value       = aws_vpc.okta_mcp.id
-  description = "VPC ID"
-}
-
-output "instance_public_ip" {
+output "instance_ip" {
+  description = "Public IP of EC2 instance"
   value       = aws_instance.okta_mcp.public_ip
-  description = "Public IP address of EC2 instance"
 }
 
-output "ssh_command" {
-  value       = "ssh -i ~/.ssh/${var.key_name}.pem ec2-user@${aws_instance.okta_mcp.public_ip}"
-  description = "SSH command to connect"
+output "instance_id" {
+  description = "EC2 instance ID"
+  value       = aws_instance.okta_mcp.id
 }
 
-output "docker_logs_command" {
-  value       = "ssh -i ~/.ssh/${var.key_name}.pem ec2-user@${aws_instance.okta_mcp.public_ip} 'sudo docker logs -f okta-mcp'"
-  description = "Command to view logs"
+output "litellm_url" {
+  description = "LiteLLM proxy URL"
+  value       = "http://${aws_instance.okta_mcp.public_ip}:4000"
 }
 
-output "roo_code_config" {
-  value       = <<-EOT
-    
-    Add to ~/.roo/mcp_settings.json:
-    
-    {
-      "mcpServers": {
-        "okta-remote-readonly": {
-          "command": "ssh",
-          "args": [
-            "-i", "~/.ssh/${var.key_name}.pem",
-            "ec2-user@${aws_instance.okta_mcp.public_ip}",
-            "sudo", "docker", "exec", "-i", "okta-mcp", ".venv/bin/okta-mcp-server"
-          ],
-          "description": "Okta MCP - Remote EC2 (OAuth JWT)"
-        }
-      }
-    }
-  EOT
-  description = "Roo Code MCP configuration"
+output "ssh_tunnel_command" {
+  description = "SSH tunnel command for secure access"
+  value       = "ssh -L 4000:localhost:4000 -i ~/.ssh/${var.key_name}.pem ec2-user@${aws_instance.okta_mcp.public_ip}"
+}
+
+output "mcp_admin_health" {
+  description = "Admin MCP health check URL"
+  value       = "http://${aws_instance.okta_mcp.public_ip}:8080/health"
+}
+
+output "mcp_readonly_health" {
+  description = "Readonly MCP health check URL"
+  value       = "http://${aws_instance.okta_mcp.public_ip}:8081/health"
 }

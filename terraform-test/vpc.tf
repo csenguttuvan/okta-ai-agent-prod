@@ -1,54 +1,45 @@
-# VPC
-resource "aws_vpc" "okta_mcp" {
+resource "aws_vpc" "mcp" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
 
   tags = {
-    Name        = "okta-mcp-vpc"
-    Environment = "test"
+    Name = "mcp-vpc"
   }
 }
 
-# Internet Gateway
-resource "aws_internet_gateway" "okta_mcp" {
-  vpc_id = aws_vpc.okta_mcp.id
+resource "aws_internet_gateway" "mcp" {
+  vpc_id = aws_vpc.mcp.id
 
   tags = {
-    Name        = "okta-mcp-igw"
-    Environment = "test"
+    Name = "mcp-igw"
   }
 }
 
-# Public Subnet
 resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.okta_mcp.id
+  vpc_id                  = aws_vpc.mcp.id
   cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${var.aws_region}a"
   map_public_ip_on_launch = true
+  availability_zone       = "${var.aws_region}a"
 
   tags = {
-    Name        = "okta-mcp-public-subnet"
-    Environment = "test"
+    Name = "mcp-public-subnet"
   }
 }
 
-# Route Table
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.okta_mcp.id
+  vpc_id = aws_vpc.mcp.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.okta_mcp.id
+    gateway_id = aws_internet_gateway.mcp.id
   }
 
   tags = {
-    Name        = "okta-mcp-public-rt"
-    Environment = "test"
+    Name = "mcp-public-rt"
   }
 }
 
-# Route Table Association
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id

@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Install system dependencies
+# Install system dependencies (including curl for health checks)
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -25,7 +25,9 @@ COPY src/ ./src/
 ENV UV_PYTHON_PREFERENCE=only-system
 
 # Install dependencies using uv sync
-RUN uv sync --frozen --no-dev
+ENV UV_HTTP_TIMEOUT=600
+ENV UV_REQUEST_TIMEOUT=600
+RUN uv sync --frozen --no-dev --refresh
 
 # Create keys directory
 RUN mkdir -p /app/keys
@@ -38,5 +40,12 @@ USER okta
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Expose HTTP port for SSE transport
+EXPOSE 8080
+
+# Health check endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+    CMD curl -f http://localhost:8080/ || exit 1
+
 # Run the MCP server
-CMD [".venv/bin/okta-mcp-server"]
+CMD [".venv/bin/python", "-m", "okta_mcp_server.server"]

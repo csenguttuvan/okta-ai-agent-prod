@@ -32,7 +32,7 @@ async def create_user(
     params = {"activate": str(activate).lower()}
     
     try:
-        user = await client.post("/api/v1/users", data=body, params=params)
+        user = await client.post(f"/api/v1/users?activate={str(activate).lower()}", data=body)
         logger.info(f"✅ Created user: {user.get('id')}")
         return user
     except PermissionError as e:

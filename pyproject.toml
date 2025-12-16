@@ -6,14 +6,17 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=0.1.0",
+    "mcp>=1.22.0",
     "requests>=2.31.0",
     "loguru>=0.7.0",
     "pyjwt>=2.8.0",
     "cryptography>=41.0.0",
+    "uvicorn>=0.38.0",
+    "starlette>=0.50.0",
 ]
 
 [project.scripts]
-okta-mcp-server = "okta_mcp_server:main"
+okta-mcp-server = "okta_mcp_server.server:main"
 
 [build-system]
 requires = ["hatchling"]
