@@ -10,6 +10,10 @@ crash.log
 # SSH Keys
 *.pem
 *.key
+# Okta private keys
+keys/
+*.pem
+
 
 # Logs
 *.log
@@ -27,3 +31,5 @@ Thumbs.db
 .env.admin
 .env.readonly
 .envrc
+terraform_logs.txt
+terraform_logs.
