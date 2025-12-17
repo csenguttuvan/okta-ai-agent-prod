@@ -1,37 +1,46 @@
-# Get existing strongDM worker security group
-data "aws_security_group" "strongdm_worker" {
-  vpc_id = data.aws_vpc.corp_it_eu.id
+# Security Group - Enhanced for HTTP/SSE and LiteLLM
+resource "aws_security_group" "okta_mcp" {
+  name        = "okta-mcp-sg"
+  description = "Security group for Okta MCP server with LiteLLM"
+  vpc_id      = aws_vpc.mcp.id
 
-  filter {
-    name   = "tag:Name"
-    values = ["sdm-proxy-worker-20251117135336592700000006"] # Adjust to match actual SG name
-  }
-}
-
-# MCP Server Security Group (SSH from strongDM worker only)
-resource "aws_security_group" "mcp" {
-  name_prefix = "okta-mcp-server-"
-  vpc_id      = data.aws_vpc.corp_it_eu.id
-  description = "Security group for Okta MCP Server"
-
-  # SSH from strongDM worker nodes only
+  # SSH access
   ingress {
-    description     = "SSH from strongDM worker"
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    security_groups = [data.aws_security_group.strongdm_worker.id]
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # Restrict to your IP in production
+    description = "SSH access"
+  }
+
+  # LiteLLM proxy port
+  ingress {
+    from_port   = 4000
+    to_port     = 4000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # Restrict to VPN or specific IPs in production
+    description = "LiteLLM proxy"
+  }
+
+  # MCP servers (for debugging only - should be internal)
+  ingress {
+    from_port   = 8080
+    to_port     = 8081
+    protocol    = "tcp"
+    cidr_blocks = ["10.0.0.0/16"] # Internal VPC only
+    description = "MCP servers internal"
   }
 
   egress {
-    description = "Allow all outbound"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound"
   }
 
   tags = {
-    Name = "okta-mcp-server-sg"
+    Name        = "okta-mcp-sg"
+    Environment = "test"
   }
 }

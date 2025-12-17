@@ -1615,3 +1615,35 @@
  - create any backup at terraform.tfstate.backup
 2025-12-16T16:28:27.377Z [TRACE] statemgr.Filesystem: reading initial snapshot from terraform.tfstate
 2025-12-16T16:28:27.381Z [TRACE] statemgr.Filesystem: read snapshot with lineage "ad08b1c0-9d39-e9e3-379a-7a01ade276aa" serial 1
+2025-12-16T23:45:08.120Z [INFO]  Terraform version: 1.5.7
+2025-12-16T23:45:08.121Z [DEBUG] using github.com/hashicorp/go-tfe v1.26.0
+2025-12-16T23:45:08.121Z [DEBUG] using github.com/hashicorp/hcl/v2 v2.16.2
+2025-12-16T23:45:08.121Z [DEBUG] using github.com/hashicorp/terraform-svchost v0.1.0
+2025-12-16T23:45:08.121Z [DEBUG] using github.com/zclconf/go-cty v1.12.2
+2025-12-16T23:45:08.121Z [INFO]  Go runtime version: go1.23.1
+2025-12-16T23:45:08.121Z [INFO]  CLI args: []string{"terraform", "output"}
+2025-12-16T23:45:08.121Z [TRACE] Stdout is not a terminal
+2025-12-16T23:45:08.121Z [TRACE] Stderr is a terminal of width 172
+2025-12-16T23:45:08.121Z [TRACE] Stdin is a terminal
+2025-12-16T23:45:08.121Z [DEBUG] Attempting to open CLI config file: /Users/chrissenguttuvan/.terraformrc
+2025-12-16T23:45:08.121Z [DEBUG] File doesn't exist, but doesn't need to. Ignoring.
+2025-12-16T23:45:08.122Z [INFO]  Loading CLI configuration from /Users/chrissenguttuvan/.terraform.d/credentials.tfrc.json
+2025-12-16T23:45:08.126Z [DEBUG] ignoring non-existing provider search directory terraform.d/plugins
+2025-12-16T23:45:08.126Z [DEBUG] ignoring non-existing provider search directory /Users/chrissenguttuvan/.terraform.d/plugins
+2025-12-16T23:45:08.126Z [DEBUG] ignoring non-existing provider search directory /Users/chrissenguttuvan/Library/Application Support/io.terraform/plugins
+2025-12-16T23:45:08.126Z [DEBUG] ignoring non-existing provider search directory /Library/Application Support/io.terraform/plugins
+2025-12-16T23:45:08.127Z [INFO]  CLI command args: []string{"output"}
+2025-12-16T23:45:08.129Z [TRACE] Meta.Backend: no config given or present on disk, so returning nil config
+2025-12-16T23:45:08.129Z [TRACE] Meta.Backend: backend has not previously been initialized in this working directory
+2025-12-16T23:45:08.130Z [DEBUG] New state was assigned lineage "4b013073-88d9-697d-007c-7590b5d2ce2c"
+2025-12-16T23:45:08.130Z [TRACE] Meta.Backend: using default local state only (no backend configuration, and no existing initialized backend)
+2025-12-16T23:45:08.130Z [TRACE] Meta.Backend: instantiated backend of type <nil>
+2025-12-16T23:45:08.130Z [DEBUG] checking for provisioner in "."
+2025-12-16T23:45:08.132Z [DEBUG] checking for provisioner in "/opt/homebrew/bin"
+2025-12-16T23:45:08.132Z [TRACE] Meta.Backend: backend <nil> does not support operations, so wrapping it in a local backend
+2025-12-16T23:45:08.132Z [TRACE] backend/local: state manager for workspace "default" will:
+ - read initial snapshot from terraform.tfstate
+ - write new snapshots to terraform.tfstate
+ - create any backup at terraform.tfstate.backup
+2025-12-16T23:45:08.132Z [TRACE] statemgr.Filesystem: reading initial snapshot from terraform.tfstate
+2025-12-16T23:45:08.136Z [TRACE] statemgr.Filesystem: read snapshot with lineage "ad08b1c0-9d39-e9e3-379a-7a01ade276aa" serial 1

@@ -154,17 +154,6 @@ services:
 COMPOSE
 
 # Create LiteLLM config
-#mcp_servers:
- # okta_admin:
-  #  url: http://localhost:8080/sse
-   # description: "Okta management with full read/write permissions"
-    #allowed_teams: ["okta_admins"]
-    
-  #okta_readonly:
-   # url: http://localhost:8081/sse
-    #description: "Okta read-only access for safe browsing"
-    #allowed_teams: ["okta_admins", "okta_readers"]
-
 cat > litellm-config.yaml << EOF
 model_list:
   - model_name: bedrock-claude
