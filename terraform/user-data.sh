@@ -156,11 +156,35 @@ COMPOSE
 # Create LiteLLM config
 cat > litellm-config.yaml << EOF
 model_list:
+  # Claude 3.5 Sonnet (primary)
   - model_name: bedrock-claude
     litellm_params:
-      model: bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
+      model: bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0
       aws_region_name: ${aws_region}
 
+  # Claude 3.5 Haiku (fast, cheap - RECOMMENDED FOR NOW)
+  - model_name: bedrock-haiku
+    litellm_params:
+      model: bedrock/us.anthropic.claude-3-5-haiku-20241022-v1:0
+      aws_region_name: ${aws_region}
+
+  # Claude Instant (legacy, may not be available)
+  - model_name: bedrock-claude-instant
+    litellm_params:
+      model: bedrock/us.anthropic.claude-instant-v1
+      aws_region_name: ${aws_region}
+
+  # Llama 3.1 70B (open source)
+  - model_name: bedrock-llama
+    litellm_params:
+      model: bedrock/us. meta.llama3-1-70b-instruct-v1:0
+      aws_region_name: ${aws_region}
+  
+  # Mistral Large
+  - model_name: bedrock-mistral
+    litellm_params:
+      model: bedrock/us.mistral.mistral-large-2407-v1:0
+      aws_region_name: ${aws_region}
 
 litellm_settings:
   master_key: \$LITELLM_MASTER_KEY
