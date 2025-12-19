@@ -47,6 +47,7 @@ logger.info("  Importing admin user privileges..")
 from okta_mcp_server.tools.users import users_admin
 logger.info("Step 3 complete: All tools imported")
 
+
 def main():
     """Run the Okta MCP server with OAuth authentication."""
     logger.info("Starting Okta MCP Server with OAuth 2.0")
