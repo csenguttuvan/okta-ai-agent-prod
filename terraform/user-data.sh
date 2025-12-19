@@ -148,6 +148,7 @@ services:
       - .env
     environment:
       - PORT=4000
+      - LITELLM_LOG=DEBUG
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
     restart: unless-stopped
 
