@@ -1,13 +1,14 @@
-from typing import Optional
+from typing import Optional, List
 from loguru import logger
 from mcp.server.fastmcp import Context
+from difflib import get_close_matches 
 
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
 
 @mcp.tool()
 async def list_groups(
-    ctx: Context = None,
+    ctx: Context = None, 
     query: Optional[str] = None,
     limit: int = 100
 ) -> dict:
@@ -33,6 +34,68 @@ async def list_groups(
     except Exception as e:
         logger.error(f"❌ Error listing groups: {str(e)}")
         raise
+
+@mcp.tool()
+async def search_groups_fuzzy(
+    search_term: str,
+    limit: int = 200,
+    ctx: Context = None
+) -> dict:
+    """Fuzzy search Okta groups by name (handles typos and partial names).
+
+    This is more forgiving than list_groups:
+    - 'disciplew dev' can match 'Disciples-dev'
+    - Case-insensitive
+    - Also tries substring matches
+    """
+    logger.info(f"Fuzzy searching groups: {search_term} (limit={limit})")
+    client = get_client()
+
+    try:
+        # Get a wider set of groups to search over
+        groups = await client.get("/api/v1/groups", params={"limit": limit})
+        names = [g["profile"]["name"] for g in groups]
+
+        # Fuzzy matches (edit-distance style)
+        fuzzy_names = get_close_matches(
+            search_term,
+            names,
+            n=10,
+            cutoff=0.4,   # 0–1, lower = more forgiving
+        )
+
+        # Also add simple substring matches (case-insensitive)
+        search_lower = search_term.lower()
+        substring_names = [
+            name for name in names
+            if search_lower in name.lower() and name not in fuzzy_names
+        ]
+
+        all_match_names = fuzzy_names + substring_names[:10]
+
+        matched = [
+            g for g in groups
+            if g["profile"]["name"] in all_match_names
+        ]
+
+        logger.info(f"✅ Fuzzy group search found {len(matched)} matches for '{search_term}'")
+
+        return {
+            "groups": matched,
+            "count": len(matched),
+            "search_term": search_term,
+            "matched_names": all_match_names,
+            "search_type": "fuzzy",
+        }
+
+    except PermissionError as e:
+        logger.error(f"❌ Permission denied in fuzzy group search: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in fuzzy group search: {str(e)}")
+        raise
+
+
 
 @mcp.tool()
 async def get_group(group_id: str, ctx: Context = None) -> dict:
@@ -161,3 +224,49 @@ async def remove_user_from_group(
     except Exception as e:
         logger.error(f"❌ Error removing user from group: {str(e)}")
         raise
+
+@mcp.tool()
+async def remove_users_from_group(
+    group_id: str,
+    user_ids: List[str],
+    ctx: Context = None
+) -> dict:
+    """Remove multiple users from a group in a single operation.
+    
+    Args:
+        group_id: The Okta group ID
+        user_ids: List of Okta user IDs to remove from the group
+    
+    Returns:
+        Dictionary with removed count and results
+    """
+    logger.info(f"Batch removing {len(user_ids)} users from group {group_id}")
+    client = get_client()
+    
+    results = []
+    failed = []
+    
+    for user_id in user_ids:
+        try:
+            await client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
+            results.append({
+                "user_id": user_id,
+                "status": "removed"
+            })
+            logger.info(f"✅ Removed user {user_id} from group {group_id}")
+        except Exception as e:
+            failed.append({
+                "user_id": user_id,
+                "error": str(e)
+            })
+            logger.error(f"❌ Failed to remove user {user_id}: {str(e)}")
+    
+    return {
+        "success": True,
+        "total": len(user_ids),
+        "removed": len(results),
+        "failed": len(failed),
+        "results": results,
+        "failures": failed if failed else None
+    }
+

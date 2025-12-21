@@ -1,7 +1,7 @@
 from typing import Optional
 from loguru import logger
 from mcp.server.fastmcp import Context
-
+from difflib import get_close_matches
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
 
@@ -103,6 +103,77 @@ async def search_users(search: str, limit: int = 50, ctx: Context = None) -> dic
     except Exception as e:
         logger.error(f"❌ Error searching users: {str(e)}")
         raise
+
+
+@mcp.tool()
+async def search_users_fuzzy(
+    search_term: str,
+    limit: int = 200,
+    ctx: Context = None
+) -> dict:
+    """Fuzzy search Okta users by name or email.
+
+    More forgiving than search_users:
+    - Handles typos in email / first / last name
+    - Case-insensitive
+    - Combines fuzzy and substring matching
+    """
+    logger.info(f"Fuzzy searching users: {search_term} (limit={limit})")
+    client = get_client()
+
+    try:
+        # Start from a broad user list (you can narrow later if needed)
+        users = await client.get("/api/v1/users", params={"limit": limit})
+
+        # Build display strings to match against (email + name)
+        def make_key(u: dict) -> str:
+            profile = u.get("profile", {})
+            return " ".join(filter(None, [
+                profile.get("firstName", ""),
+                profile.get("lastName", ""),
+                profile.get("email", ""),
+                profile.get("login", ""),
+            ]))
+
+        keys = [make_key(u) for u in users]
+
+        fuzzy_keys = get_close_matches(
+            search_term,
+            keys,
+            n=20,
+            cutoff=0.4,
+        )
+
+        search_lower = search_term.lower()
+        substring_keys = [
+            k for k in keys
+            if search_lower in k.lower() and k not in fuzzy_keys
+        ]
+
+        all_match_keys = fuzzy_keys + substring_keys[:20]
+
+        matched_users = [
+            u for u, k in zip(users, keys)
+            if k in all_match_keys
+        ]
+
+        logger.info(f"✅ Fuzzy user search found {len(matched_users)} matches for '{search_term}'")
+
+        return {
+            "users": matched_users,
+            "count": len(matched_users),
+            "search_term": search_term,
+            "matched_keys": all_match_keys,
+            "search_type": "fuzzy",
+        }
+
+    except PermissionError as e:
+        logger.error(f"❌ Permission denied in fuzzy user search: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in fuzzy user search: {str(e)}")
+        raise
+
 
 
 @mcp.tool()
