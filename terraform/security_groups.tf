@@ -2,15 +2,15 @@
 resource "aws_security_group" "okta_mcp" {
   name        = "okta-mcp-sg"
   description = "Security group for Okta MCP server with LiteLLM"
-  vpc_id      = aws_vpc.mcp.id
+  vpc_id      = data.aws_vpc.corp_it.id
 
   # SSH access
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Restrict to your IP in production
-    description = "SSH access"
+    cidr_blocks = ["10.2.0.0/16"] # Restrict to your IP in production
+    description = "SSH via StrongDM"
   }
 
   # LiteLLM proxy port
@@ -18,8 +18,8 @@ resource "aws_security_group" "okta_mcp" {
     from_port   = 4000
     to_port     = 4000
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Restrict to VPN or specific IPs in production
-    description = "LiteLLM proxy"
+    cidr_blocks = ["10.2.0.0/16"] # Restrict to VPN or specific IPs in production
+    description = "LiteLLM proxy via StrongDM"
   }
 
   # MCP servers (for debugging only - should be internal)
@@ -27,8 +27,17 @@ resource "aws_security_group" "okta_mcp" {
     from_port   = 8080
     to_port     = 8081
     protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/16"] # Internal VPC only
+    cidr_blocks = ["10.2.0.0/16"] # Internal VPC only
     description = "MCP servers internal"
+  }
+
+  # Grafana - Internal only
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["10.2.0.0/16"]
+    description = "Grafana dashboard via StrongDM"
   }
 
   egress {
@@ -41,6 +50,6 @@ resource "aws_security_group" "okta_mcp" {
 
   tags = {
     Name        = "okta-mcp-sg"
-    Environment = "test"
+    Environment = "production"
   }
 }

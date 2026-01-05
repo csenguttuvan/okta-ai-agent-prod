@@ -86,9 +86,19 @@ EOF
 
 chmod 600 .env
 
+# Create Loki data directories with correct permissions
+mkdir -p /opt/okta-litellm/{loki-data,loki-wal}
+chown -R 10001:10001 /opt/okta-litellm/{loki-data,loki-wal}
+chmod -R 755 /opt/okta-litellm/{loki-data,loki-wal}
+
+
 # Create docker-compose.yml
 cat > docker-compose.yml << 'COMPOSE'
 version: '3.8'
+
+networks:
+  logging:
+    driver: bridge
 
 services:
   okta-mcp-admin:
@@ -113,6 +123,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
   okta-mcp-readonly:
     image: blackstaa/okta-mcp-server:latest
@@ -136,6 +148,20 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
+    labels:
+     - "com.centurylinklabs.watchtower.enable=true"
+  
+    watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true              # Remove old images
+      - WATCHTOWER_INCLUDE_STOPPED=true      # Update stopped containers
+      - WATCHTOWER_POLL_INTERVAL=300         # Check every 5 minutes
+      - WATCHTOWER_LABEL_ENABLE=true         # Only update labeled containers
 
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
@@ -151,45 +177,81 @@ services:
       - LITELLM_LOG=DEBUG
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
     restart: unless-stopped
+  
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    user: "10001:10001"
+    command: -config.file=/etc/loki/config/loki-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config/loki-config.yaml:ro
+      - ./loki-data:/loki
+      - ./loki-wal:/wal
+    ports:
+      - "3100:3100"
+    networks:
+      - logging
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    command: -config.file=/etc/promtail/config/promtail-config.yaml
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/config/promtail-config.yaml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - logging
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - logging
+    restart: unless-stopped
+
+
 
 COMPOSE
 
 # Create LiteLLM config
 cat > litellm-config.yaml << EOF
 model_list:
-  # Claude 3.5 Sonnet (primary)
-  - model_name: bedrock-claude
-    litellm_params:
-      model: bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0
-      aws_region_name: ${aws_region}
-
-  # Claude 3.5 Haiku (fast, cheap - RECOMMENDED FOR NOW)
+  # Claude 3.5 Haiku (fast, cheap)
   - model_name: bedrock-haiku
     litellm_params:
-      model: bedrock/us.anthropic.claude-3-5-haiku-20241022-v1:0
+      model: bedrock/eu.anthropic.claude-3-haiku-20240307-v1:0
       aws_region_name: ${aws_region}
-
-  # Claude Instant (legacy, may not be available)
-  - model_name: bedrock-claude-instant
-    litellm_params:
-      model: bedrock/us.anthropic.claude-instant-v1
-      aws_region_name: ${aws_region}
+      max_tokens: 8000
 
   # Llama 3.1 70B (open source)
   - model_name: bedrock-llama
     litellm_params:
-      model: bedrock/us. meta.llama3-1-70b-instruct-v1:0
+      model: bedrock/eu.meta.llama3-1-3b-instruct-v1:0
       aws_region_name: ${aws_region}
+      max_tokens: 4000
   
   # Mistral Large
   - model_name: bedrock-mistral
     litellm_params:
-      model: bedrock/us.mistral.mistral-large-2407-v1:0
+      model: bedrock/eu.mistral.mistral-large-2402-v1:0
       aws_region_name: ${aws_region}
+      max_tokens: 8000
 
 litellm_settings:
   master_key: \$LITELLM_MASTER_KEY
   drop_params: true
+  success_callback: ["stdout"]
+  failure_callback: ["stdout"]
+  set_verbose: true
 
 teams:
   - team_id: okta_admins
@@ -211,7 +273,112 @@ teams:
 general_settings:
   store_model_in_db: true
   json_logs: true
+  disable_spend_logs: false
+  store_prompts_in_spend_logs: true
 EOF
+
+
+# Create Loki config
+cat > loki-config.yaml << 'EOF_LOKI'
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+
+ingester:
+  lifecycler:
+    address: 127.0.0.1
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+    final_sleep: 0s
+  chunk_idle_period: 5m
+  chunk_block_size: 262144
+  chunk_retain_period: 30s
+  max_transfer_retries: 0
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  boltdb_shipper:
+    active_index_directory: /loki/index
+    cache_location: /loki/index_cache
+    shared_store: filesystem
+  filesystem:
+    directory: /loki/chunks
+
+compactor:
+  working_directory: /loki/compactor
+  shared_store: filesystem
+
+limits_config:
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  max_query_series: 100000
+  max_query_length: 24h
+  max_entries_limit_per_query: 5000
+  max_query_parallelism: 32
+  per_stream_rate_limit: 16MB
+  per_stream_rate_limit_burst: 32MB
+
+chunk_store_config:
+  max_look_back_period: 0s
+
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 168h  # 7 days
+EOF_LOKI
+
+# Create Promtail config
+cat > promtail-config.yaml << 'EOF_PROMTAIL'
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # UNCONDITIONAL STATIC LABELS - ALWAYS EXIST
+      - target_label: job
+        replacement: docker
+      - target_label: cluster  
+        replacement: okta-litellm
+      - target_label: host
+        replacement: ec2-instance
+      # Container metadata (safe fallbacks)
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container_name
+        action: replace
+      - source_labels: ['__meta_docker_container_id']
+        target_label: container_id
+        action: replace
+EOF_PROMTAIL
+
+
+
+
+
+
 
 # Create systemd service
 cat > /etc/systemd/system/okta-litellm.service << 'SYSTEMD'
@@ -275,3 +442,6 @@ chown ec2-user:ec2-user /home/ec2-user/README.txt
 
 echo "✅ Deployment complete!"
 echo "🔗 LiteLLM: http://$INSTANCE_IP:4000"
+
+
+

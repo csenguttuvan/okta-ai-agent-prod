@@ -1,6 +1,6 @@
-output "instance_ip" {
-  description = "Public IP of EC2 instance"
-  value       = aws_instance.okta_mcp.public_ip
+output "instance_private_ip" {
+  description = "Private IP of EC2 instance (access via StrongDM)"
+  value       = aws_instance.okta_mcp.private_ip
 }
 
 output "instance_id" {
@@ -8,22 +8,27 @@ output "instance_id" {
   value       = aws_instance.okta_mcp.id
 }
 
-output "litellm_url" {
-  description = "LiteLLM proxy URL"
-  value       = "http://${aws_instance.okta_mcp.public_ip}:4000"
+output "strongdm_ssh_resource_config" {
+  description = "Config for StrongDM SSH resource registration"
+  value = {
+    hostname = aws_instance.okta_mcp.private_ip
+    port     = 22
+    username = "ec2-user"
+  }
 }
 
-output "ssh_tunnel_command" {
-  description = "SSH tunnel command for secure access"
-  value       = "ssh -L 4000:localhost:4000 -i ~/.ssh/${var.key_name}.pem ec2-user@${aws_instance.okta_mcp.public_ip}"
+output "strongdm_litellm_resource_config" {
+  description = "Config for StrongDM HTTP resource registration"
+  value = {
+    url              = "http://${aws_instance.okta_mcp.private_ip}:4000"
+    healthcheck_path = "/health"
+  }
 }
 
-output "mcp_admin_health" {
-  description = "Admin MCP health check URL"
-  value       = "http://${aws_instance.okta_mcp.public_ip}:8080/health"
-}
-
-output "mcp_readonly_health" {
-  description = "Readonly MCP health check URL"
-  value       = "http://${aws_instance.okta_mcp.public_ip}:8081/health"
+output "strongdm_grafana_resource_config" {
+  description = "Config for StrongDM Grafana resource registration"
+  value = {
+    url              = "http://${aws_instance.okta_mcp.private_ip}:3000"
+    healthcheck_path = "/api/health"
+  }
 }

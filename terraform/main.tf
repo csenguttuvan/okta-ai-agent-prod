@@ -17,11 +17,13 @@ provider "aws" {
 resource "aws_instance" "okta_mcp" {
   ami                         = data.aws_ami.amazon_linux_2023.id
   instance_type               = var.instance_type
-  subnet_id                   = aws_subnet.public.id
-  vpc_security_group_ids      = [aws_security_group.okta_mcp.id]
+  subnet_id                   = data.aws_subnet.existing_private.id # Use existing subnet
+  vpc_security_group_ids      = [aws_security_group.okta_mcp.id, "sg-07b5cdf925bc5afcf"]
   iam_instance_profile        = aws_iam_instance_profile.mcp.name
-  associate_public_ip_address = true
+  associate_public_ip_address = false
   key_name                    = var.key_name
+  private_ip                  = "10.2.0.37"
+
 
   root_block_device {
     volume_size           = 30
@@ -46,7 +48,7 @@ resource "aws_instance" "okta_mcp" {
   })
 
   tags = {
-    Name        = "okta-mcp-litellm-server"
+    Name        = "okta-mcp-litellm--dev-server"
     Environment = "test"
     Purpose     = "MCP Server + LiteLLM Proxy"
   }

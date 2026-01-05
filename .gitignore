@@ -32,4 +32,4 @@ Thumbs.db
 .env.readonly
 .envrc
 terraform_logs.txt
-terraform_logs.
+terraform_logs.*
