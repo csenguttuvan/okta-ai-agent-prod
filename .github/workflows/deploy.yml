@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
 
 jobs:
   build-and-scan:
@@ -25,7 +22,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
-      # Build image locally for scanning (single platform for speed)
       - name: Build image for scanning
         uses: docker/build-push-action@v4
         with:
@@ -40,27 +36,11 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'blackstaa/okta-mcp-server:scan'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-      
-      # Upload results to GitHub Security tab
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
-        with:
-          sarif_file: 'trivy-results.sarif'
-      
-      # Also show results in workflow logs
-      - name: Run Trivy scanner (table output)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'blackstaa/okta-mcp-server:scan'
           format: 'table'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          exit-code: '0'  # Don't fail yet, just show results
+          exit-code: '0'
       
-      # Build and push multi-platform if scan passes
+      # Build and push multi-platform
       - name: Build and push multi-platform image
         uses: docker/build-push-action@v4
         with:
@@ -73,7 +53,6 @@ jobs:
       
       - name: Deployment summary
         run: |
-          echo "✅ Image built and scanned"
-          echo "✅ Pushed to Docker Hub"
-          echo "⏳ Watchtower will deploy within 5 minutes"
-          echo "📊 Check Security tab for scan results"
+          echo "✅ Image scanned and pushed to Docker Hub"
+          echo "⏳ Watchtower will auto-deploy within 5 minutes"
+          echo "🔒 Check the 'Run Trivy vulnerability scanner' step above for security report"
