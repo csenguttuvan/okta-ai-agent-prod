@@ -37,8 +37,8 @@ jobs:
         with:
           image-ref: 'blackstaa/okta-mcp-server:scan'
           format: 'table'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          exit-code: '0'
+          severity: 'CRITICAL'
+          exit-code: '1'
       
       # Build and push multi-platform
       - name: Build and push multi-platform image
