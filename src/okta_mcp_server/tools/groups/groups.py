@@ -179,7 +179,7 @@ async def create_group(
     try:
         group = await client.post("/api/v1/groups", data={"profile": profile})
         logger.info(f"✅ Created group: {group.get('id')}")
-        return groupß
+        return group
     except PermissionError as e:
         logger.error(f"❌ Permission denied: {str(e)}")
         raise
