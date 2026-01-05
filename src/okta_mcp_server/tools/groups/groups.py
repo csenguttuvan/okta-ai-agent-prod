@@ -8,11 +8,15 @@ from okta_mcp_server.oauth_jwt_client import get_client
 
 @mcp.tool()
 async def list_groups(
-    ctx: Context = None, 
-    query: Optional[str] = None,
-    limit: int = 100
+    query: Optional[str] = None,  # ✅ Moved ctx to end
+    limit: int = 100,
+    ctx: Context = None  # ✅ Context last
 ) -> dict:
     """List Okta groups (requires groups.read scope)."""
+    # ✅ Handle string "null" from MCP clients
+    if query in ("null", "None", ""):
+        query = None
+    
     logger.info(f"Listing groups (query={query}, limit={limit})")
     client = get_client()
 
@@ -39,7 +43,7 @@ async def list_groups(
 async def search_groups_fuzzy(
     search_term: str,
     limit: int = 200,
-    ctx: Context = None
+    ctx: Context = None  # ✅ Already correct position
 ) -> dict:
     """Fuzzy search Okta groups by name (handles typos and partial names).
 
@@ -48,12 +52,28 @@ async def search_groups_fuzzy(
     - Case-insensitive
     - Also tries substring matches
     """
+    # ✅ Handle empty string and null
+    if search_term in ("null", "None", ""):
+        search_term = ""
+    
     logger.info(f"Fuzzy searching groups: {search_term} (limit={limit})")
     client = get_client()
 
     try:
         # Get a wider set of groups to search over
         groups = await client.get("/api/v1/groups", params={"limit": limit})
+        
+        # ✅ Handle empty search term
+        if not search_term:
+            logger.info(f"✅ Empty search term, returning all {len(groups)} groups")
+            return {
+                "groups": groups,
+                "count": len(groups),
+                "search_term": search_term,
+                "matched_names": [g["profile"]["name"] for g in groups],
+                "search_type": "all",
+            }
+        
         names = [g["profile"]["name"] for g in groups]
 
         # Fuzzy matches (edit-distance style)
@@ -140,11 +160,15 @@ async def list_group_users(group_id: str, limit: int = 100, ctx: Context = None)
 
 @mcp.tool()
 async def create_group(
-name: str,
-description: Optional[str] = None,
-ctx: Context = None
+    name: str,
+    description: Optional[str] = None,
+    ctx: Context = None
 ) -> dict:
     """Create a new Okta group (requires okta.groups.manage scope)."""
+    # Handle string "null" from some MCP clients
+    if description in ("null", "None", ""):
+        description = None
+    
     logger.info(f"Creating group: {name}")
     client = get_client()
     
@@ -155,7 +179,7 @@ ctx: Context = None
     try:
         group = await client.post("/api/v1/groups", data={"profile": profile})
         logger.info(f"✅ Created group: {group.get('id')}")
-        return group
+        return groupß
     except PermissionError as e:
         logger.error(f"❌ Permission denied: {str(e)}")
         raise
@@ -191,16 +215,27 @@ async def add_user_to_group(
     """Add a user to a group (requires okta.groups.manage scope)."""
     logger.info(f"Adding user {user_id} to group {group_id}")
     client = get_client()
-    
+
     try:
         await client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
         logger.info(f"✅ Added user {user_id} to group {group_id}")
-        return {"message": f"User added to group successfully"}
+        logger.info(
+            f"[tool=add_user_to_group] group_id={group_id} user_id={user_id} result=success"
+        )
+        return {"message": "User added to group successfully"}
     except PermissionError as e:
         logger.error(f"❌ Permission denied: {str(e)}")
+        logger.error(
+            f"[tool=add_user_to_group] group_id={group_id} user_id={user_id} "
+            f"result=error error={str(e)}"
+        )
         raise
     except Exception as e:
         logger.error(f"❌ Error adding user to group: {str(e)}")
+        logger.error(
+            f"[tool=add_user_to_group] group_id={group_id} user_id={user_id} "
+            f"result=error error={str(e)}"
+        )
         raise
 
 
@@ -254,12 +289,21 @@ async def remove_users_from_group(
                 "status": "removed"
             })
             logger.info(f"✅ Removed user {user_id} from group {group_id}")
+            logger.info(
+                f"[tool=remove_users_from_group] group_id={group_id} user_id={user_id} "
+                f"result=success"
+        )
         except Exception as e:
             failed.append({
                 "user_id": user_id,
                 "error": str(e)
-            })
+        })
             logger.error(f"❌ Failed to remove user {user_id}: {str(e)}")
+            logger.error(
+                f"[tool=remove_users_from_group] group_id={group_id} user_id={user_id} "
+                f"result=error error={str(e)}"
+        )
+
     
     return {
         "success": True,

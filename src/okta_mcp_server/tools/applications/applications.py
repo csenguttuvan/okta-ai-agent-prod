@@ -5,11 +5,12 @@ from mcp.server.fastmcp import Context
 from okta_mcp_server.server import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
 
+
 @mcp.tool()
 async def list_applications(
-    ctx: Context = None,
-    query: str = None,
-    limit: int = 100
+    query: Optional[str] = None,  # Changed from Optional[str]
+    limit: int = 100,
+    ctx: Context = None  # Context moved to last position
 ) -> dict:
     """
     List Okta applications (requires apps.read scope).
@@ -21,6 +22,10 @@ async def list_applications(
     Returns:
         Dict with applications list and metadata
     """
+    # Handle string "null" from some MCP clients
+    if query in ("null", "None", ""):
+        query = None
+    
     logger.info(f"Listing applications (query={query}, limit={limit})")
     
     params = {"limit": limit}

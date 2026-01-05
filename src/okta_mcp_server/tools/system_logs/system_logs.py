@@ -8,10 +8,10 @@ from okta_mcp_server.oauth_jwt_client import get_client
 @mcp.tool()
 async def get_logs(
     ctx: Context = None,
-    since: str = None,
-    until: str = None,
-    filter: str = None,
-    query: str = None,
+    since: Optional[str] = None,   # ✅ Change from: since: str = None
+    until: Optional[str] = None,   # ✅ Change from: until: str = None
+    filter: Optional[str] = None,  # ✅ Change from: filter: str = None
+    query: Optional[str] = None, 
     limit: int = 100
 ) -> dict:
     """Retrieve system logs from Okta (requires logs.read scope)."""
