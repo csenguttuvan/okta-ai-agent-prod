@@ -13,8 +13,6 @@ except ImportError:
 
 import sys
 from loguru import logger
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
 
 # Configure logging
 logger.remove()
@@ -34,37 +32,6 @@ logger.info("Step 2: Initializing OAuth client...")
 from okta_mcp_server.oauth_jwt_client import init_okta_client
 init_okta_client()
 logger.info("Step 2 complete: OAuth initialized")
-
-# Define auth validation middleware as a class
-class AuthValidationMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        """Validate requests from auth gateway and extract user identity"""
-        # Allow health checks without auth
-        if request.url.path in ["/health", "/healthz"]:
-            return await call_next(request)
-        
-        # Verify internal auth token from gateway
-        auth_token = request.headers.get("X-Internal-Auth")
-        expected = os.getenv("INTERNAL_AUTH_TOKEN")
-        
-        # Only enforce if INTERNAL_AUTH_TOKEN is set (for gateway mode)
-        if expected and auth_token != expected:
-            logger.warning(f"Unauthorized request from {request.client.host}")
-            return JSONResponse(
-                status_code=403,
-                content={"error": "Invalid internal auth"}
-            )
-        
-        # Extract user info and attach to request state
-        request.state.user_email = request.headers.get("X-User-Email", "unknown")
-        request.state.user_id = request.headers.get("X-User-ID", "unknown")
-        request.state.user_groups = request.headers.get("X-User-Groups", "").split(",")
-        request.state.access_level = request.headers.get("X-Access-Level", "unknown")
-        
-        if request.state.user_email != "unknown":
-            logger.info(f"Request from authenticated user: {request.state.user_email} ({request.state.access_level})")
-        
-        return await call_next(request)
 
 # Import ALL tools at MODULE LEVEL - this registers them with mcp
 logger.info("Step 3: Importing tools...")
@@ -102,16 +69,16 @@ def main():
         # Check if running in gateway mode
         if os.getenv("INTERNAL_AUTH_TOKEN"):
             logger.info("🔒 Running in GATEWAY MODE - auth required from gateway")
+            logger.warning("⚠️  Gateway auth middleware temporarily disabled for SSE compatibility")
         else:
             logger.info("⚠️  Running in DIRECT MODE - no gateway auth required")
         
-        # Get the underlying Starlette app and add middleware
+        # Create the SSE app and run with uvicorn directly
         import uvicorn
         starlette_app = mcp.sse_app()
         
-        # Add auth middleware to the Starlette app
-        starlette_app.add_middleware(AuthValidationMiddleware)
-        logger.info("✅ Auth middleware registered")
+        # Note: Middleware disabled temporarily due to SSE/BaseHTTPMiddleware incompatibility
+        # Will be added when you implement the auth gateway
         
         config = uvicorn.Config(
             starlette_app,
