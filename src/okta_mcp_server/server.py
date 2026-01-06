@@ -101,4 +101,31 @@ def main():
         
         # Check if running in gateway mode
         if os.getenv("INTERNAL_AUTH_TOKEN"):
-            logger.info("🔒 Running in GATEWAY MODE - 
+            logger.info("🔒 Running in GATEWAY MODE - auth required from gateway")
+        else:
+            logger.info("⚠️  Running in DIRECT MODE - no gateway auth required")
+        
+        # Get the underlying Starlette app and add middleware
+        import uvicorn
+        starlette_app = mcp.sse_app()
+        
+        # Add auth middleware to the Starlette app
+        starlette_app.add_middleware(AuthValidationMiddleware)
+        logger.info("✅ Auth middleware registered")
+        
+        config = uvicorn.Config(
+            starlette_app,
+            host=host,
+            port=port,
+            log_level="info"
+        )
+        server = uvicorn.Server(config)
+        import asyncio
+        asyncio.run(server.serve())
+    else:
+        logger.info("MCP Server ready - OAuth mode enabled")
+        logger.info("Running in stdio transport mode")
+        mcp.run(transport="stdio")
+
+if __name__ == "__main__":
+    main()
