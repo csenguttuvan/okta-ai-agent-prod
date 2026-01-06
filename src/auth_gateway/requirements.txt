@@ -5,3 +5,4 @@ httpx
 itsdangerous
 loguru
 python-dotenv
+starlette

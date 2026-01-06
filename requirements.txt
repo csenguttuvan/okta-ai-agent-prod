@@ -40,6 +40,8 @@ cryptography==46.0.3
     # via
     #   jwcrypto
     #   pyjwt
+fastapi>=0.115.0
+
 flatdict==4.0.1
     # via okta
 frozenlist==1.8.0
