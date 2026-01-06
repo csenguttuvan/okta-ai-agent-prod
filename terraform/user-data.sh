@@ -217,6 +217,33 @@ services:
     networks:
       - logging
     restart: unless-stopped
+  
+  okta-mcp-admin:
+    # ... existing config ...
+    env_file: .env.admin
+    
+  okta-mcp-readonly:
+    # ... existing config ...
+    env_file: .env.readonly
+
+  okta-mcp-gateway:
+    build:
+      context: ./src/auth_gateway
+      dockerfile: Dockerfile
+    container_name: okta-mcp-gateway
+    env_file: .env.gateway  # Point to gateway env file
+    ports:
+      - "9000:9000"
+    networks:
+      - okta-network
+    depends_on:
+      - okta-mcp-admin
+      - okta-mcp-readonly
+    restart: unless-stopped
+
+networks:
+  okta-network:
+    driver: bridge
 
 
 
@@ -373,9 +400,6 @@ scrape_configs:
         target_label: container_id
         action: replace
 EOF_PROMTAIL
-
-
-
 
 
 
