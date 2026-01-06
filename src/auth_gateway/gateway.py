@@ -1,18 +1,22 @@
-import os
 from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.responses import RedirectResponse, JSONResponse, StreamingResponse
 from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
 import httpx
+import os
+import secrets
 from loguru import logger
 
 app = FastAPI(title="Okta MCP Auth Gateway")
 
+# Session management
 app.add_middleware(
     SessionMiddleware, 
-    secret_key=os.getenv("SESSION_SECRET"),
-    max_age=3600 * 8
+    secret_key=os.getenv("SESSION_SECRET", secrets.token_hex(32)),
+    max_age=3600 * 8  # 8 hour sessions
 )
 
+# Okta OAuth setup
 oauth = OAuth()
 oauth.register(
     name='okta',
@@ -44,9 +48,14 @@ async def root(request: Request):
         return {
             "status": "authenticated",
             "user": user['email'],
-            "access_level": access_level
+            "access_level": access_level,
+            "message": "Gateway is running. Connect your MCP client to /sse"
         }
-    return {"status": "unauthenticated", "login_url": "/login"}
+    return {
+        "status": "unauthenticated",
+        "message": "Visit /login to authenticate",
+        "login_url": "/login"
+    }
 
 @app.get("/login")
 async def login(request: Request):
@@ -71,12 +80,12 @@ async def auth_callback(request: Request):
         
         _, access_level = get_mcp_url_for_user(request.session['user'])
         
-        return {
+        return JSONResponse({
             "status": "success",
-            "message": "Authenticated successfully",
+            "message": "Authenticated successfully! You can now use your MCP client.",
             "user": user_info['email'],
             "access_level": access_level
-        }
+        })
         
     except Exception as e:
         logger.error(f"Auth callback error: {e}")
@@ -101,62 +110,31 @@ async def mcp_sse_endpoint(
     request: Request,
     user: dict = Depends(get_current_user)
 ):
-    """SSE endpoint - routes to appropriate MCP server"""
+    """SSE endpoint - routes to appropriate MCP server based on user permissions"""
     mcp_url, access_level = get_mcp_url_for_user(user)
     logger.info(f"[{user['email']}] SSE connection ({access_level}) -> {mcp_url}")
     
-    async with httpx.AsyncClient() as client:
-        async with client.stream(
-            "GET",
-            f"{mcp_url}/sse",
-            headers={
-                "X-User-Email": user['email'],
-                "X-User-ID": user['sub'],
-                "X-User-Groups": ",".join(user.get('groups', [])),
-                "X-Access-Level": access_level,
-                "X-Internal-Auth": os.getenv("INTERNAL_AUTH_TOKEN")
-            },
-            timeout=None
-        ) as response:
-            async for chunk in response.aiter_bytes():
-                yield chunk
-
-@app.post("/mcp/call")
-async def mcp_call_proxy(
-    request: Request,
-    user: dict = Depends(get_current_user)
-):
-    """Proxy MCP tool calls to appropriate server"""
-    body = await request.json()
-    mcp_url, access_level = get_mcp_url_for_user(user)
+    # Stream from internal MCP server
+    async def stream_from_mcp():
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "GET",
+                f"{mcp_url}/sse",
+                headers={
+                    "X-User-Email": user['email'],
+                    "X-User-ID": user['sub'],
+                    "X-User-Groups": ",".join(user.get('groups', [])),
+                    "X-Access-Level": access_level,
+                    "X-Internal-Auth": os.getenv("INTERNAL_AUTH_TOKEN", "")
+                }
+            ) as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
     
-    logger.info(f"[{user['email']}] ({access_level}) MCP call: {body.get('method', 'unknown')}")
-    
-    if 'params' not in body:
-        body['params'] = {}
-    if 'meta' not in body['params']:
-        body['params']['meta'] = {}
-    
-    body['params']['meta'].update({
-        'user_email': user['email'],
-        'user_id': user['sub'],
-        'user_name': user.get('name'),
-        'groups': user.get('groups', []),
-        'access_level': access_level
-    })
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{mcp_url}/mcp/call",
-            json=body,
-            headers={
-                "X-User-Email": user['email'],
-                "X-Access-Level": access_level,
-                "X-Internal-Auth": os.getenv("INTERNAL_AUTH_TOKEN")
-            },
-            timeout=60.0
-        )
-        return response.json()
+    return StreamingResponse(
+        stream_from_mcp(),
+        media_type="text/event-stream"
+    )
 
 @app.get("/health")
 async def health():
@@ -164,5 +142,9 @@ async def health():
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info("Starting Okta MCP Auth Gateway with role-based routing")
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("GATEWAY_PORT", "9000")))
+    logger.info("Starting Okta MCP Auth Gateway")
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=int(os.getenv("GATEWAY_PORT", "9000"))
+    )
