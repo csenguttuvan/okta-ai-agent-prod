@@ -13,6 +13,7 @@ except ImportError:
 
 import sys
 from loguru import logger
+from fastapi import HTTPException
 
 # Configure logging
 logger.remove()
@@ -33,6 +34,34 @@ from okta_mcp_server.oauth_jwt_client import init_okta_client
 init_okta_client()
 logger.info("Step 2 complete: OAuth initialized")
 
+# Add middleware to validate internal auth and extract user context
+@mcp.app.middleware("http")
+async def validate_internal_auth(request, call_next):
+    """Validate requests from auth gateway and extract user identity"""
+    # Allow health checks without auth
+    if request.url.path in ["/health", "/healthz"]:
+        return await call_next(request)
+    
+    # Verify internal auth token from gateway
+    auth_token = request.headers.get("X-Internal-Auth")
+    expected = os.getenv("INTERNAL_AUTH_TOKEN")
+    
+    # Only enforce if INTERNAL_AUTH_TOKEN is set (for gateway mode)
+    if expected and auth_token != expected:
+        logger.warning(f"Unauthorized request from {request.client.host}")
+        raise HTTPException(status_code=403, detail="Invalid internal auth")
+    
+    # Extract user info and attach to request state
+    request.state.user_email = request.headers.get("X-User-Email", "unknown")
+    request.state.user_id = request.headers.get("X-User-ID", "unknown")
+    request.state.user_groups = request.headers.get("X-User-Groups", "").split(",")
+    request.state.access_level = request.headers.get("X-Access-Level", "unknown")
+    
+    if request.state.user_email != "unknown":
+        logger.info(f"Request from authenticated user: {request.state.user_email} ({request.state.access_level})")
+    
+    return await call_next(request)
+
 # Import ALL tools at MODULE LEVEL - this registers them with mcp
 logger.info("Step 3: Importing tools...")
 logger.info("  Importing users...")
@@ -43,10 +72,11 @@ logger.info("  Importing applications...")
 from okta_mcp_server.tools import applications
 logger.info("  Importing system_logs...")
 from okta_mcp_server.tools import system_logs
-logger.info("  Importing admin user privileges..")
+logger.info("  Importing policies...")
+from okta_mcp_server.tools import policies
+logger.info("  Importing admin user privileges...")
 from okta_mcp_server.tools.users import users_admin
 logger.info("Step 3 complete: All tools imported")
-
 
 def main():
     """Run the Okta MCP server with OAuth authentication."""
@@ -65,6 +95,12 @@ def main():
         logger.info("MCP Server ready - OAuth mode enabled")
         logger.info(f"Running in HTTP/SSE transport mode on {host}:{port}")
         
+        # Check if running in gateway mode
+        if os.getenv("INTERNAL_AUTH_TOKEN"):
+            logger.info("🔒 Running in GATEWAY MODE - auth required from gateway")
+        else:
+            logger.info("⚠️  Running in DIRECT MODE - no gateway auth required")
+        
         # Create the SSE app and run with uvicorn directly
         import uvicorn
         starlette_app = mcp.sse_app()  # Get the internal Starlette app
@@ -82,9 +118,6 @@ def main():
         logger.info("MCP Server ready - OAuth mode enabled")
         logger.info("Running in stdio transport mode")
         mcp.run(transport="stdio")
-
-
-
 
 if __name__ == "__main__":
     main()
