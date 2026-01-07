@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from contextvars import ContextVar
 
 # Load .env file automatically
 try:
@@ -21,6 +22,10 @@ logger.add(
     format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function} - {message}",
     level=os.getenv("OKTA_LOG_LEVEL", "INFO")
 )
+
+# Create context variables for storing caller info
+caller_email_var: ContextVar[str] = ContextVar("caller_email", default="unknown")
+caller_groups_var: ContextVar[list] = ContextVar("caller_groups", default=[])
 
 # Import the shared mcp instance
 logger.info("Step 1: Importing mcp_instance...")
@@ -49,6 +54,17 @@ logger.info("  Importing admin user privileges...")
 from okta_mcp_server.tools.users import users_admin
 logger.info("Step 3 complete: All tools imported")
 
+
+def get_caller_email() -> str:
+    """Get the current caller's email from context"""
+    return caller_email_var.get()
+
+
+def get_caller_groups() -> list:
+    """Get the current caller's groups from context"""
+    return caller_groups_var.get()
+
+
 def main():
     """Run the Okta MCP server with OAuth authentication."""
     logger.info("Starting Okta MCP Server with OAuth 2.0")
@@ -69,16 +85,33 @@ def main():
         # Check if running in gateway mode
         if os.getenv("INTERNAL_AUTH_TOKEN"):
             logger.info("🔒 Running in GATEWAY MODE - auth required from gateway")
-            logger.warning("⚠️  Gateway auth middleware temporarily disabled for SSE compatibility")
         else:
             logger.info("⚠️  Running in DIRECT MODE - no gateway auth required")
         
-        # Create the SSE app and run with uvicorn directly
+        # Create the SSE app
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.requests import Request
         import uvicorn
+        
         starlette_app = mcp.sse_app()
         
-        # Note: Middleware disabled temporarily due to SSE/BaseHTTPMiddleware incompatibility
-        # Will be added when you implement the auth gateway
+        # Add middleware to extract caller from headers
+        @starlette_app.middleware("http")
+        async def extract_caller_middleware(request: Request, call_next):
+            # Extract caller info from headers
+            email = request.headers.get("X-User-Email", "unknown")
+            groups_str = request.headers.get("X-User-Groups", "")
+            groups = groups_str.split(",") if groups_str else []
+            
+            # Set context variables
+            caller_email_var.set(email)
+            caller_groups_var.set(groups)
+            
+            logger.debug(f"Request from {email} with groups {groups}")
+            
+            response = await call_next(request)
+            return response
         
         config = uvicorn.Config(
             starlette_app,
@@ -93,6 +126,7 @@ def main():
         logger.info("MCP Server ready - OAuth mode enabled")
         logger.info("Running in stdio transport mode")
         mcp.run(transport="stdio")
+
 
 if __name__ == "__main__":
     main()

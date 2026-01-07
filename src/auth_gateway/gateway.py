@@ -6,6 +6,7 @@ import httpx
 import os
 import secrets
 from loguru import logger
+from fastapi.responses import Response
 
 
 app = FastAPI(title="Okta MCP Auth Gateway")
@@ -179,6 +180,59 @@ async def mcp_sse_endpoint(
         stream_from_mcp(),
         media_type="text/event-stream"
     )
+
+@app.post("/messages/")
+async def proxy_messages(
+    request: Request,
+    user: dict = Depends(get_current_user)
+):
+    """Proxy messages to backend MCP server"""
+    mcp_url, access_level = get_mcp_url_for_user(user)
+    logger.info(f"[{user['email']}] POST /messages/ ({access_level}) -> {mcp_url}")
+    
+    body = await request.body()
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.post(
+                f"{mcp_url}/messages/",
+                content=body,
+                params=dict(request.query_params),
+                headers={
+                    "X-User-Email": user['email'],
+                    "X-User-ID": user['sub'],
+                    "X-User-Groups": ",".join(user.get('groups', [])),
+                    "X-Access-Level": access_level,
+                    "Content-Type": request.headers.get("content-type", "application/json"),
+                    "X-Internal-Auth": os.getenv("INTERNAL_AUTH_TOKEN", "")
+                }
+            )
+            
+            logger.info(f"Backend response status: {response.status_code}")
+            
+            # Handle 202 Accepted (async response - no body)
+            if response.status_code == 202:
+                return Response(status_code=202)
+            
+            # For other responses, try to parse JSON
+            if response.text:
+                try:
+                    content = response.json()
+                    return JSONResponse(content=content, status_code=response.status_code)
+                except:
+                    # Return text response if not JSON
+                    return Response(content=response.text, status_code=response.status_code)
+            else:
+                # Empty response
+                return Response(status_code=response.status_code)
+            
+        except httpx.ConnectError as e:
+            logger.error(f"Cannot connect to MCP server at {mcp_url}: {e}")
+            raise HTTPException(status_code=503, detail=f"MCP server unavailable: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error proxying message: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.get("/health")

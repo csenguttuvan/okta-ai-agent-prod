@@ -4,21 +4,8 @@ from mcp.server.fastmcp import Context
 
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
+from okta_mcp_server.server import get_caller_email, get_caller_groups
 
-def get_caller_email(ctx: Context | None) -> str:
-    """Extract user email from context metadata"""
-    if not ctx:
-        return "unknown"
-
-    # Try to get from request context meta (when using gateway)
-    if hasattr(ctx, 'request_context') and hasattr(ctx.request_context, 'meta'):
-        meta = ctx.request_context.meta
-        if isinstance(meta, dict):
-            return meta.get('user_email', 'unknown')
-
-    # Fallback to environment variable (for non-gateway usage)
-    import os
-    return os.getenv('USER_EMAIL', 'unknown')
 
 @mcp.tool()
 async def list_applications(
@@ -37,7 +24,7 @@ async def list_applications(
     Returns:
         Dict containing list of applications
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Listing applications limit={limit}")
 
     params = {"limit": limit}
@@ -74,7 +61,7 @@ async def get_application(
     Returns:
         Dict containing application details
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Getting application: {app_id}")
 
     if not app_id:
@@ -108,7 +95,7 @@ async def list_application_users(
     Returns:
         Dict containing list of assigned users
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Listing users for application: {app_id}")
 
     if not app_id:
@@ -148,7 +135,7 @@ async def list_application_groups(
     Returns:
         Dict containing list of assigned groups
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Listing groups for application: {app_id}")
 
     if not app_id:
@@ -188,7 +175,7 @@ async def assign_user_to_application(
     Returns:
         Dict with assignment details
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Assigning user {user_id} to application {app_id}")
 
     if not app_id or not user_id:
@@ -225,7 +212,7 @@ async def assign_group_to_application(
     Returns:
         Dict with assignment details
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Assigning group {group_id} to application {app_id}")
 
     if not app_id or not group_id:

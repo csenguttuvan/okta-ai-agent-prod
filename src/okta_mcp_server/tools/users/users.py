@@ -5,21 +5,7 @@ from difflib import get_close_matches
 
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
-
-def get_caller_email(ctx: Context | None) -> str:
-    """Extract user email from context metadata"""
-    if not ctx:
-        return "unknown"
-
-    # Try to get from request context meta
-    if hasattr(ctx, 'request_context') and hasattr(ctx.request_context, 'meta'):
-        meta = ctx.request_context.meta
-        if isinstance(meta, dict):
-            return meta.get('user_email', 'unknown')
-
-    # Fallback to environment variable (for non-gateway usage)
-    import os
-    return os.getenv('USER_EMAIL', 'unknown')
+from okta_mcp_server.server import get_caller_email, get_caller_groups
 
 @mcp.tool()
 async def list_users(
@@ -36,7 +22,7 @@ async def list_users(
     Returns:
         Dict with users list and metadata
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
 
     if query in ("null", None):
         query = None
@@ -78,7 +64,7 @@ async def find_user(identifier: str, ctx: Context | None = None) -> dict:
     Returns:
         Dict with user object, match type, and all matches if fuzzy search was used
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
 
     if identifier in ("null", None):
         raise ValueError("identifier cannot be empty")
@@ -157,7 +143,7 @@ async def get_user(user_id: str, ctx: Context | None = None) -> dict:
     Returns:
         User object with full details
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Getting user: {user_id}")
 
     try:
@@ -187,7 +173,7 @@ async def search_users(
     Returns:
         Dict with matching users
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
 
     if search in ("null", None):
         search = ""
@@ -244,7 +230,7 @@ async def search_users_fuzzy(
         - Case-insensitive
         - Combines fuzzy and substring matching
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
 
     if search_term in ("null", None):
         search_term = ""
@@ -315,7 +301,7 @@ async def get_user_groups(user_id: str, ctx: Context | None = None) -> dict:
     Returns:
         Dict with user's groups
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Getting groups for user: {user_id}")
 
     try:
@@ -341,7 +327,7 @@ async def check_permissions(ctx: Context | None = None) -> dict:
     Returns:
         Dict with scope information and capability flags
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Checking permissions")
 
     client = get_client()

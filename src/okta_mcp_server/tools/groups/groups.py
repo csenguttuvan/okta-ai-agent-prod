@@ -2,22 +2,10 @@ from typing import Optional, List
 from loguru import logger
 from mcp.server.fastmcp import Context
 from difflib import get_close_matches
+from okta_mcp_server.server import get_caller_email, get_caller_groups  # Import from server
 
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
-
-def get_caller_email(ctx: Context | None) -> str:
-    """Extract user email from context metadata"""
-    if not ctx:
-        return "unknown"
-
-    if hasattr(ctx, 'request_context') and hasattr(ctx.request_context, 'meta'):
-        meta = ctx.request_context.meta
-        if isinstance(meta, dict):
-            return meta.get('user_email', 'unknown')
-
-    import os
-    return os.getenv('USER_EMAIL', 'unknown')
 
 @mcp.tool()
 async def list_groups(
@@ -26,7 +14,7 @@ async def list_groups(
     ctx: Context | None = None
 ) -> dict:
     """List Okta groups (requires groups.read scope)."""
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
 
     if query in ("null", None):
         query = None
@@ -66,7 +54,7 @@ async def search_groups_fuzzy(
         - Case-insensitive
         - Also tries substring matches
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
 
     if search_term in ("null", None):
         search_term = ""
@@ -119,7 +107,7 @@ async def search_groups_fuzzy(
 @mcp.tool()
 async def get_group(group_id: str, ctx: Context | None = None) -> dict:
     """Get details for a specific group (requires groups.read scope)."""
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Getting group: {group_id}")
 
     client = get_client()
@@ -142,7 +130,7 @@ async def list_group_users(
     ctx: Context | None = None
 ) -> dict:
     """List users in a group (requires groups.read scope)."""
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Listing users in group: {group_id}")
 
     client = get_client()
@@ -170,7 +158,7 @@ async def create_group(
     ctx: Context | None = None
 ) -> dict:
     """Create a new Okta group (requires okta.groups.manage scope)."""
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
 
     if description in ("null", None):
         description = None
@@ -196,7 +184,7 @@ async def create_group(
 @mcp.tool()
 async def delete_group(group_id: str, ctx: Context | None = None) -> dict:
     """Delete an Okta group (requires okta.groups.manage scope)."""
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Deleting group: {group_id}")
 
     client = get_client()
@@ -219,7 +207,7 @@ async def add_user_to_group(
     ctx: Context | None = None
 ) -> dict:
     """Add a user to a group (requires okta.groups.manage scope)."""
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Adding user {user_id} to group {group_id}")
 
     client = get_client()
@@ -245,7 +233,7 @@ async def remove_user_from_group(
     ctx: Context | None = None
 ) -> dict:
     """Remove a user from a group (requires okta.groups.manage scope)."""
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Removing user {user_id} from group {group_id}")
 
     client = get_client()
@@ -276,7 +264,7 @@ async def remove_users_from_group(
     Returns:
         Dictionary with removed count and results
     """
-    caller = get_caller_email(ctx)
+    caller = get_caller_email()
     logger.info(f"[caller={caller}] Batch removing {len(user_ids)} users from group {group_id}")
 
     client = get_client()
