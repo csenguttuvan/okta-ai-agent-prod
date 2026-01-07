@@ -24,7 +24,7 @@ logger.add(
 
 # Import context variables and helpers from separate module
 from okta_mcp_server.context import (
-    caller_email_var, 
+    caller_email_var,
     caller_groups_var,
     get_caller_email,
     get_caller_groups
@@ -81,32 +81,36 @@ def main():
             logger.info("⚠️ Running in DIRECT MODE - no gateway auth required")
         
         # Create the SSE app
-        from starlette.applications import Starlette
-        from starlette.middleware import Middleware
-        from starlette.requests import Request
         import uvicorn
         
-        starlette_app = mcp.sse_app()
+        # Create custom ASGI middleware for SSE compatibility
+        class CallerContextMiddleware:
+            def __init__(self, app):
+                self.app = app
+            
+            async def __call__(self, scope, receive, send):
+                if scope["type"] == "http":
+                    # Extract headers from scope
+                    headers = dict(scope.get("headers", []))
+                    email = headers.get(b"x-user-email", b"unknown").decode()
+                    groups_str = headers.get(b"x-user-groups", b"").decode()
+                    groups = groups_str.split(",") if groups_str else []
+                    
+                    # Set context variables
+                    caller_email_var.set(email)
+                    caller_groups_var.set(groups)
+                    
+                    logger.debug(f"Request from {email} with groups {groups}")
+                
+                # Pass through to the app
+                await self.app(scope, receive, send)
         
-        # Add middleware to extract caller from headers
-        @starlette_app.middleware("http")
-        async def extract_caller_middleware(request: Request, call_next):
-            # Extract caller info from headers
-            email = request.headers.get("X-User-Email", "unknown")
-            groups_str = request.headers.get("X-User-Groups", "")
-            groups = groups_str.split(",") if groups_str else []
-            
-            # Set context variables
-            caller_email_var.set(email)
-            caller_groups_var.set(groups)
-            
-            logger.debug(f"Request from {email} with groups {groups}")
-            
-            response = await call_next(request)
-            return response
+        # Wrap the SSE app with our middleware
+        starlette_app = mcp.sse_app()
+        app_with_middleware = CallerContextMiddleware(starlette_app)
         
         config = uvicorn.Config(
-            starlette_app,
+            app_with_middleware,
             host=host,
             port=port,
             log_level="info"
@@ -115,6 +119,7 @@ def main():
         server = uvicorn.Server(config)
         import asyncio
         asyncio.run(server.serve())
+    
     else:
         logger.info("MCP Server ready - OAuth mode enabled")
         logger.info("Running in stdio transport mode")
