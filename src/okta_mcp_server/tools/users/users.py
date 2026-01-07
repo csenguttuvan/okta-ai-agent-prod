@@ -5,7 +5,8 @@ from difflib import get_close_matches
 
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
-from okta_mcp_server.server import get_caller_email, get_caller_groups
+from okta_mcp_server.context import get_caller_email, get_caller_groups
+
 
 @mcp.tool()
 async def list_users(

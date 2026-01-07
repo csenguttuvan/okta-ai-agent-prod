@@ -2,7 +2,8 @@ from typing import Optional, List
 from loguru import logger
 from mcp.server.fastmcp import Context
 from difflib import get_close_matches
-from okta_mcp_server.server import get_caller_email, get_caller_groups  # Import from server
+from okta_mcp_server.context import get_caller_email, get_caller_groups
+
 
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client

@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from contextvars import ContextVar
 
 # Load .env file automatically
 try:
@@ -23,9 +22,13 @@ logger.add(
     level=os.getenv("OKTA_LOG_LEVEL", "INFO")
 )
 
-# Create context variables for storing caller info
-caller_email_var: ContextVar[str] = ContextVar("caller_email", default="unknown")
-caller_groups_var: ContextVar[list] = ContextVar("caller_groups", default=[])
+# Import context variables and helpers from separate module
+from okta_mcp_server.context import (
+    caller_email_var, 
+    caller_groups_var,
+    get_caller_email,
+    get_caller_groups
+)
 
 # Import the shared mcp instance
 logger.info("Step 1: Importing mcp_instance...")
@@ -54,17 +57,6 @@ logger.info("  Importing admin user privileges...")
 from okta_mcp_server.tools.users import users_admin
 logger.info("Step 3 complete: All tools imported")
 
-
-def get_caller_email() -> str:
-    """Get the current caller's email from context"""
-    return caller_email_var.get()
-
-
-def get_caller_groups() -> list:
-    """Get the current caller's groups from context"""
-    return caller_groups_var.get()
-
-
 def main():
     """Run the Okta MCP server with OAuth authentication."""
     logger.info("Starting Okta MCP Server with OAuth 2.0")
@@ -86,7 +78,7 @@ def main():
         if os.getenv("INTERNAL_AUTH_TOKEN"):
             logger.info("🔒 Running in GATEWAY MODE - auth required from gateway")
         else:
-            logger.info("⚠️  Running in DIRECT MODE - no gateway auth required")
+            logger.info("⚠️ Running in DIRECT MODE - no gateway auth required")
         
         # Create the SSE app
         from starlette.applications import Starlette
@@ -119,6 +111,7 @@ def main():
             port=port,
             log_level="info"
         )
+        
         server = uvicorn.Server(config)
         import asyncio
         asyncio.run(server.serve())
@@ -126,7 +119,6 @@ def main():
         logger.info("MCP Server ready - OAuth mode enabled")
         logger.info("Running in stdio transport mode")
         mcp.run(transport="stdio")
-
 
 if __name__ == "__main__":
     main()
