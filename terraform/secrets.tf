@@ -83,6 +83,16 @@ resource "aws_secretsmanager_secret_version" "litellm_reader_key" {
   secret_string = var.litellm_reader_key
 }
 
+# Gateway session secret - REFERENCE existing manually created secret
+data "aws_secretsmanager_secret" "gateway_session_secret" {
+  name = "okta-mcp-gateway-session-secret"
+}
+
+# Gateway internal auth token - REFERENCE existing manually created secret
+data "aws_secretsmanager_secret" "gateway_internal_auth_token" {
+  name = "okta-mcp-gateway-internal-auth-token"
+}
+
 # IAM policy for EC2 to access all secrets
 resource "aws_iam_role_policy" "secrets_manager_access" {
   name = "okta-mcp-secrets-access"
@@ -102,8 +112,11 @@ resource "aws_iam_role_policy" "secrets_manager_access" {
           aws_secretsmanager_secret.okta_admin_private_key.arn,
           aws_secretsmanager_secret.litellm_master_key.arn,
           aws_secretsmanager_secret.litellm_admin_key.arn,
-          aws_secretsmanager_secret.litellm_reader_key.arn
+          aws_secretsmanager_secret.litellm_reader_key.arn,
+          data.aws_secretsmanager_secret.gateway_session_secret.arn,
+          data.aws_secretsmanager_secret.gateway_internal_auth_token.arn
         ]
+
       }
     ]
   })

@@ -32,19 +32,25 @@ resource "aws_instance" "okta_mcp" {
   }
 
   user_data = templatefile("${path.module}/user-data.sh", {
-    aws_region               = var.aws_region
-    readonly_secret_id       = aws_secretsmanager_secret.okta_readonly_private_key.id
-    admin_secret_id          = aws_secretsmanager_secret.okta_admin_private_key.id
-    litellm_master_secret_id = aws_secretsmanager_secret.litellm_master_key.id
-    litellm_admin_secret_id  = aws_secretsmanager_secret.litellm_admin_key.id
-    litellm_reader_secret_id = aws_secretsmanager_secret.litellm_reader_key.id
-    okta_api_base_url        = var.okta_api_base_url
-    okta_readonly_client_id  = var.okta_client_id       # lowercase
-    okta_readonly_scopes     = var.okta_scopes          # lowercase
-    okta_admin_client_id     = var.okta_admin_client_id # lowercase
-    okta_admin_scopes        = var.okta_admin_scopes    # lowercase
-    docker_image             = var.docker_image
-    key_name                 = var.key_name
+    aws_region                      = var.aws_region
+    readonly_secret_id              = aws_secretsmanager_secret.okta_readonly_private_key.id
+    admin_secret_id                 = aws_secretsmanager_secret.okta_admin_private_key.id
+    litellm_master_secret_id        = aws_secretsmanager_secret.litellm_master_key.id
+    litellm_admin_secret_id         = aws_secretsmanager_secret.litellm_admin_key.id
+    litellm_reader_secret_id        = aws_secretsmanager_secret.litellm_reader_key.id
+    okta_api_base_url               = var.okta_api_base_url
+    okta_readonly_client_id         = var.okta_client_id       # lowercase
+    okta_readonly_scopes            = var.okta_scopes          # lowercase
+    okta_admin_client_id            = var.okta_admin_client_id # lowercase
+    okta_admin_scopes               = var.okta_admin_scopes    # lowercase
+    docker_image                    = var.docker_image
+    key_name                        = var.key_name
+    okta_gateway_client_id          = var.okta_gateway_client_id
+    okta_issuer                     = var.okta_issuer
+    gateway_redirect_uri            = var.gateway_redirect_uri
+    gateway_session_secret_id       = var.gateway_session_secret_id
+    gateway_internal_auth_secret_id = var.gateway_internal_auth_secret_id
+
   })
 
   tags = {
@@ -68,4 +74,26 @@ data "aws_ami" "amazon_linux_2023" {
     name   = "virtualization-type"
     values = ["hvm"]
   }
+}
+
+# Create persistent EBS volume
+resource "aws_ebs_volume" "grafana_data" {
+  availability_zone = data.aws_subnet.existing_private.availability_zone
+  size              = 10
+  type              = "gp3"
+
+  tags = {
+    Name = "grafana-data"
+  }
+
+  lifecycle {
+    prevent_destroy = true # Protect from accidental deletion
+  }
+}
+
+# Attach to instance
+resource "aws_volume_attachment" "grafana_data" {
+  device_name = "/dev/xvdf"
+  volume_id   = aws_ebs_volume.grafana_data.id
+  instance_id = aws_instance.okta_mcp.id
 }

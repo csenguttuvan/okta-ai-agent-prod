@@ -28,6 +28,52 @@ usermod -a -G docker ec2-user
 mkdir -p /opt/okta-litellm/{keys,litellm-data}
 cd /opt/okta-litellm
 
+echo "📦 Setting up persistent Grafana storage..."
+DEVICE="/dev/xvdf"
+MOUNT_POINT="/opt/okta-litellm/grafana-data"
+
+# Wait for device to be available (up to 30 seconds)
+COUNTER=0
+while [ ! -b "$DEVICE" ] && [ $COUNTER -lt 30 ]; do
+  echo "Waiting for EBS volume $DEVICE to attach..."
+  sleep 1
+  COUNTER=$((COUNTER+1))
+done
+
+if [ -b "$DEVICE" ]; then
+  echo "✅ EBS volume $DEVICE found"
+  
+  # Check if filesystem exists
+  if ! blkid "$DEVICE" | grep -q 'TYPE="ext4"'; then
+    echo "📝 Creating ext4 filesystem on $DEVICE"
+    mkfs -t ext4 "$DEVICE"
+  else
+    echo "✅ Filesystem already exists on $DEVICE"
+  fi
+  
+  # Create mount point
+  mkdir -p "$MOUNT_POINT"
+  
+  # Mount the volume
+  mount "$DEVICE" "$MOUNT_POINT"
+  
+  # Set correct permissions for Grafana (UID 472)
+  chown -R 472:472 "$MOUNT_POINT"
+  chmod 755 "$MOUNT_POINT"
+  
+  # Add to fstab for automatic mounting on reboot
+  if ! grep -q "$DEVICE" /etc/fstab; then
+    echo "$DEVICE $MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
+  fi
+  
+  echo "✅ Grafana data volume mounted at $MOUNT_POINT"
+else
+  echo "⚠️  EBS volume not found, using host directory"
+  mkdir -p "$MOUNT_POINT"
+  chown -R 472:472 "$MOUNT_POINT"
+fi
+
+
 echo "🔐 Fetching secrets from AWS Secrets Manager..."
 
 # Fetch readonly private key
@@ -70,6 +116,21 @@ LITELLM_READER_KEY=$(aws secretsmanager get-secret-value \
   --output text)
 echo "✅ LiteLLM reader team key retrieved"
 
+
+GATEWAY_SESSION_SECRET=$(aws secretsmanager get-secret-value \
+  --secret-id ${gateway_session_secret_id} \
+  --region ${aws_region} \
+  --query SecretString \
+  --output text)
+echo "✅ Gateway session secret retrieved"
+
+GATEWAY_INTERNAL_AUTH_TOKEN=$(aws secretsmanager get-secret-value \
+  --secret-id ${gateway_internal_auth_secret_id} \
+  --region ${aws_region} \
+  --query SecretString \
+  --output text)
+echo "✅ Gateway internal auth token retrieved"
+
 # Create .env file
 cat > .env << EOF
 LITELLM_MASTER_KEY=$LITELLM_MASTER_KEY
@@ -82,9 +143,26 @@ OKTA_READONLY_CLIENT_ID=${okta_readonly_client_id}  # ✅ CORRECT
 OKTA_READONLY_SCOPES=${okta_readonly_scopes}       
 OKTA_LOG_LEVEL=INFO
 DOCKER_IMAGE=${docker_image}
+GATEWAY_SESSION_SECRET=$GATEWAY_SESSION_SECRET
+GATEWAY_INTERNAL_AUTH_TOKEN=$GATEWAY_INTERNAL_AUTH_TOKEN
 EOF
 
 chmod 600 .env
+
+# Create .env.gateway file
+cat > .env.gateway << EOF
+OKTA_CLIENT_ID=${okta_gateway_client_id}
+OKTA_ISSUER=${okta_issuer}
+GATEWAY_PORT=9000
+SESSION_SECRET=$GATEWAY_SESSION_SECRET
+REDIRECT_URI=${gateway_redirect_uri}
+MCP_ADMIN_URL=http://127.0.0.1:8080
+MCP_READONLY_URL=http://127.0.0.1:8081
+INTERNAL_AUTH_TOKEN=$GATEWAY_INTERNAL_AUTH_TOKEN
+ADMIN_GROUP_NAME=Okta-MCP-Admins
+EOF
+
+chmod 600 .env.gateway
 
 # Create Loki data directories with correct permissions
 mkdir -p /opt/okta-litellm/{loki-data,loki-wal}
@@ -151,7 +229,7 @@ services:
     labels:
      - "com.centurylinklabs.watchtower.enable=true"
   
-    watchtower:
+  watchtower:
     image: containrrr/watchtower
     container_name: watchtower
     restart: unless-stopped
@@ -209,43 +287,32 @@ services:
   grafana:
     image: grafana/grafana:10.4.0
     container_name: grafana
+    user: "472:472"
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - logging
     restart: unless-stopped
-  
-  okta-mcp-admin:
-    # ... existing config ...
-    env_file: .env.admin
-    
-  okta-mcp-readonly:
-    # ... existing config ...
-    env_file: .env.readonly
 
   okta-mcp-gateway:
-    build:
-      context: ./src/auth_gateway
-      dockerfile: Dockerfile
+    image: blackstaa/okta-mcp-gateway:latest
     container_name: okta-mcp-gateway
-    env_file: .env.gateway  # Point to gateway env file
-    ports:
-      - "9000:9000"
-    networks:
-      - okta-network
-    depends_on:
-      - okta-mcp-admin
-      - okta-mcp-readonly
+    network_mode: "host"
+    env_file: .env.gateway
     restart: unless-stopped
-
-networks:
-  okta-network:
-    driver: bridge
-
-
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
 COMPOSE
 
@@ -257,7 +324,6 @@ model_list:
     litellm_params:
       model: bedrock/eu.anthropic.claude-3-haiku-20240307-v1:0
       aws_region_name: ${aws_region}
-      max_tokens: 8000
 
   # Llama 3.1 70B (open source)
   - model_name: bedrock-llama

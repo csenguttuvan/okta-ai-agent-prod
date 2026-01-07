@@ -39,6 +39,15 @@ resource "aws_security_group" "okta_mcp" {
     cidr_blocks = ["10.2.0.0/16"]
     description = "Grafana dashboard via StrongDM"
   }
+  # Auth gateway
+  ingress {
+    from_port   = 9000
+    to_port     = 9000
+    protocol    = "tcp"
+    cidr_blocks = ["10.2.0.0/16"]
+    description = "Auth Gateway for Okta"
+  }
+
 
   egress {
     from_port   = 0

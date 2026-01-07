@@ -101,4 +101,28 @@ variable "use_existing_vpc" {
   default     = true
 }
 
+variable "okta_gateway_client_id" {
+  description = "Okta OIDC Client ID for the auth gateway"
+  type        = string
+}
 
+variable "okta_issuer" {
+  description = "Okta OAuth issuer URL"
+  type        = string
+  default     = "https://integrator-7772662.okta.com/oauth2/default"
+}
+
+variable "gateway_redirect_uri" {
+  description = "OAuth redirect URI for the gateway"
+  type        = string
+}
+
+variable "gateway_session_secret_id" {
+  description = "AWS Secrets Manager ID for gateway session secret"
+  type        = string
+}
+
+variable "gateway_internal_auth_secret_id" {
+  description = "AWS Secrets Manager ID for gateway internal auth token"
+  type        = string
+}
