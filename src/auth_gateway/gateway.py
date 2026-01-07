@@ -7,7 +7,9 @@ import os
 import secrets
 from loguru import logger
 
+
 app = FastAPI(title="Okta MCP Auth Gateway")
+
 
 # Session management
 app.add_middleware(
@@ -15,6 +17,7 @@ app.add_middleware(
     secret_key=os.getenv("SESSION_SECRET", secrets.token_hex(32)),
     max_age=3600 * 8  # 8 hour sessions
 )
+
 
 # Okta OAuth setup
 oauth = OAuth()
@@ -28,6 +31,7 @@ oauth.register(
     }
 )
 
+
 def get_mcp_url_for_user(user: dict) -> tuple[str, str]:
     """Determine which MCP server to use based on user's groups"""
     admin_group = os.getenv("ADMIN_GROUP_NAME", "Okta-MCP-Admins")
@@ -39,6 +43,7 @@ def get_mcp_url_for_user(user: dict) -> tuple[str, str]:
     else:
         logger.info(f"User {user['email']} has read-only access")
         return os.getenv("MCP_READONLY_URL"), "readonly"
+
 
 @app.get("/")
 async def root(request: Request):
@@ -57,11 +62,13 @@ async def root(request: Request):
         "login_url": "/login"
     }
 
+
 @app.get("/login")
 async def login(request: Request):
     redirect_uri = os.getenv("REDIRECT_URI", str(request.url_for('auth_callback')))
     logger.info(f"Initiating login, redirect_uri={redirect_uri}")
     return await oauth.okta.authorize_redirect(request, redirect_uri)
+
 
 @app.get("/oauth/callback")
 async def auth_callback(request: Request):
@@ -91,19 +98,56 @@ async def auth_callback(request: Request):
         logger.error(f"Auth callback error: {e}")
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
+
 @app.get("/logout")
 async def logout(request: Request):
     request.session.clear()
     return {"status": "logged out"}
 
+
 async def get_current_user(request: Request):
+    """Get user from session OR from StrongDM headers"""
+    
+    # Option 1: Check for existing session (browser OAuth)
     user = request.session.get('user')
-    if not user:
-        raise HTTPException(
-            status_code=401, 
-            detail="Not authenticated. Visit /login to authenticate."
-        )
-    return user
+    if user:
+        logger.info(f"User authenticated via session: {user['email']}")
+        return user
+    
+    # Option 2: Check for StrongDM user headers (for SSE clients)
+    sdm_email = request.headers.get("X-SDM-User-Email")
+    sdm_groups = request.headers.get("X-SDM-User-Groups")
+    
+    if sdm_email:
+        # User authenticated via StrongDM
+        logger.info(f"User authenticated via StrongDM: {sdm_email}")
+        
+        # Parse groups from comma-separated string
+        groups = sdm_groups.split(",") if sdm_groups else []
+        
+        return {
+            'sub': sdm_email,  # Use email as sub
+            'email': sdm_email,
+            'name': sdm_email.split('@')[0],
+            'groups': groups
+        }
+    
+    # Option 3: Development/testing bypass
+    if os.getenv("GATEWAY_DEV_MODE") == "true":
+        logger.warning("DEV MODE: Using test user")
+        return {
+            'sub': 'test@kaltura.com',
+            'email': 'test@kaltura.com',
+            'name': 'Test User',
+            'groups': [os.getenv("ADMIN_GROUP_NAME", "Okta-MCP-Admins")]
+        }
+    
+    # No authentication found
+    raise HTTPException(
+        status_code=401,
+        detail="Not authenticated. Visit /login to authenticate or ensure StrongDM headers are present."
+    )
+
 
 @app.get("/sse")
 async def mcp_sse_endpoint(
@@ -136,9 +180,11 @@ async def mcp_sse_endpoint(
         media_type="text/event-stream"
     )
 
+
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "okta-mcp-auth-gateway"}
+
 
 if __name__ == "__main__":
     import uvicorn
