@@ -319,6 +319,12 @@ COMPOSE
 # Create LiteLLM config
 cat > litellm-config.yaml << EOF
 model_list:
+  # Claude 3.5 Sonnet
+  - model_name: bedrock-sonnet
+    litellm_params:
+      model: bedrock/anthropic.claude-3-sonnet-20240229-v1:0
+      aws_region_name: ${aws_region}
+
   # Claude 3.5 Haiku (fast, cheap)
   - model_name: bedrock-haiku
     litellm_params:
