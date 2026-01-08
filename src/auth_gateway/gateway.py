@@ -116,21 +116,17 @@ async def get_current_user(request: Request):
         return user
     
     # Option 2: Check for StrongDM user headers (for SSE clients)
-    sdm_email = request.headers.get("X-SDM-User-Email")
-    sdm_groups = request.headers.get("X-SDM-User-Groups")
+    sdm_email = request.headers.get("X-Forwarded-User")
     
     if sdm_email:
         # User authenticated via StrongDM
         logger.info(f"User authenticated via StrongDM: {sdm_email}")
         
-        # Parse groups from comma-separated string
-        groups = sdm_groups.split(",") if sdm_groups else []
-        
         return {
-            'sub': sdm_email,  # Use email as sub
+            'sub': sdm_email,
             'email': sdm_email,
             'name': sdm_email.split('@')[0],
-            'groups': groups
+            'groups': []  # ← Empty groups - just tracking email
         }
     
     # Option 3: Development/testing bypass
@@ -140,7 +136,7 @@ async def get_current_user(request: Request):
             'sub': 'test@kaltura.com',
             'email': 'test@kaltura.com',
             'name': 'Test User',
-            'groups': [os.getenv("ADMIN_GROUP_NAME", "Okta-MCP-Admins")]
+            'groups': []
         }
     
     # No authentication found
@@ -148,6 +144,7 @@ async def get_current_user(request: Request):
         status_code=401,
         detail="Not authenticated. Visit /login to authenticate or ensure StrongDM headers are present."
     )
+
 
 
 @app.get("/sse")
