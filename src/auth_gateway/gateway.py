@@ -5,7 +5,6 @@ from starlette.middleware.sessions import SessionMiddleware
 import httpx
 import os
 import secrets
-import json
 from loguru import logger
 from fastapi.responses import Response
 
@@ -184,61 +183,52 @@ async def proxy_messages(
     request: Request,
     user: dict = Depends(get_current_user)
 ):
-    """Proxy messages to backend MCP server - dynamic routing by tool name"""
-    body = await request.body()
-    try:
-        # Parse JSON-RPC for tool calls
-        data = json.loads(body)
-        tool_name = None
-        if isinstance(data, dict) and data.get("method") == "tools/call":
-            tool_name = data.get("params", {}).get("name")
-        
-        # Determine routing based on tool and user perms
-        admin_group = os.getenv("ADMIN_GROUP_NAME", "Okta-MCP-Admins")
-        is_admin = admin_group in user.get('groups', [])
-        
-        if tool_name:
-            logger.info(f"[{user['email']}] Tool call: {tool_name} (admin: {is_admin})")
-            
-            # Define read vs write tool patterns (customize as needed)
-            read_prefixes = {"list_", "get_", "describe_", "search_"}
-            write_prefixes = {"create_", "delete_", "update_", "add_", "remove_"}
-            
-            is_read_tool = any(tool_name.startswith(prefix) for prefix in read_prefixes)
-            is_write_tool = any(tool_name.startswith(prefix) for prefix in write_prefixes)
-            
-            if is_write_tool and not is_admin:
-                raise HTTPException(status_code=403, detail=f"Admin access required for {tool_name}")
-            
-            if is_read_tool or not tool_name:
-                # Default to readonly for reads or non-tool calls
-                mcp_url = os.getenv("MCP_READONLY_URL")
-                access_level = "readonly"
-            else:
-                # Admin write tools
-                mcp_url = os.getenv("MCP_ADMIN_URL")
-                access_level = "admin"
-        else:
-            # Non-tool calls default to readonly
-            mcp_url = os.getenv("MCP_READONLY_URL")
-            access_level = "readonly"
-        
-        logger.info(f"[{user['email']}] Routing ({access_level}) -> {mcp_url}")
-        
-    except json.JSONDecodeError:
-        # Non-JSON fallback to readonly
-        mcp_url = os.getenv("MCP_READONLY_URL")
-        access_level = "readonly"
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Routing error: {e}")
-        mcp_url = os.getenv("MCP_READONLY_URL")
-        access_level = "readonly"
+    """Proxy messages to backend MCP server"""
+    mcp_url, access_level = get_mcp_url_for_user(user)
+    logger.info(f"[{user['email']}] POST /messages/ ({access_level}) -> {mcp_url}")
     
-    # Proxy as before (rest of your existing proxy code unchanged)
+    body = await request.body()
+    
     async with httpx.AsyncClient(timeout=30.0) as client:
-        # ... (same proxy logic)
+        try:
+            response = await client.post(
+                f"{mcp_url}/messages/",
+                content=body,
+                params=dict(request.query_params),
+                headers={
+                    "X-User-Email": user['email'],
+                    "X-User-ID": user['sub'],
+                    "X-User-Groups": ",".join(user.get('groups', [])),
+                    "X-Access-Level": access_level,
+                    "Content-Type": request.headers.get("content-type", "application/json"),
+                    "X-Internal-Auth": os.getenv("INTERNAL_AUTH_TOKEN", "")
+                }
+            )
+            
+            logger.info(f"Backend response status: {response.status_code}")
+            
+            # Handle 202 Accepted (async response - no body)
+            if response.status_code == 202:
+                return Response(status_code=202)
+            
+            # For other responses, try to parse JSON
+            if response.text:
+                try:
+                    content = response.json()
+                    return JSONResponse(content=content, status_code=response.status_code)
+                except:
+                    # Return text response if not JSON
+                    return Response(content=response.text, status_code=response.status_code)
+            else:
+                # Empty response
+                return Response(status_code=response.status_code)
+            
+        except httpx.ConnectError as e:
+            logger.error(f"Cannot connect to MCP server at {mcp_url}: {e}")
+            raise HTTPException(status_code=503, detail=f"MCP server unavailable: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error proxying message: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health")
