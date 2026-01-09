@@ -131,10 +131,10 @@ class OktaOAuthJWTClient:
         content_type = response.headers.get("content-type", "")
         if "application/json" not in content_type:
             raise ValueError(
-            f"Expected JSON from Okta, got {content_type}: {response.text[:200]}"
+                f"Expected JSON from Okta, got {content_type}: {response.text[:200]}"
         )
 
-    return response.json()
+        return response.json()
 
     async def post(self, endpoint: str, data: Dict) -> Any:
         """Make authenticated POST request."""
