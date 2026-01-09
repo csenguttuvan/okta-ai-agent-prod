@@ -132,7 +132,7 @@ class OktaOAuthJWTClient:
         if "application/json" not in content_type:
             raise ValueError(
                 f"Expected JSON from Okta, got {content_type}: {response.text[:200]}"
-        )
+            )
 
         return response.json()
 
