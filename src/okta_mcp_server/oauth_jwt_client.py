@@ -116,24 +116,25 @@ class OktaOAuthJWTClient:
         }
 
     async def get(self, endpoint: str, params: Optional[Dict] = None) -> Any:
-        """Make authenticated GET request to Okta API."""
         url = f"{self.base_url}{endpoint}"
-        logger.debug(f"GET {url} {params or ''}")
-
         response = requests.get(url, headers=self._get_headers(), params=params)
 
         if response.status_code == 401:
-            logger.warning("Token expired (401), refreshing...")
             self._fetch_token()
-            response = requests.get(url, headers=self._get_headers(), params=params)
+        response = requests.get(url, headers=self._get_headers(), params=params)
 
         if response.status_code == 403:
-            error_msg = f"❌ Insufficient scope for {endpoint}"
-            logger.error(error_msg)
-            raise PermissionError(error_msg)
+            raise PermissionError(f"❌ Insufficient scope for {endpoint}")
 
         response.raise_for_status()
-        return response.json()
+
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            raise ValueError(
+            f"Expected JSON from Okta, got {content_type}: {response.text[:200]}"
+        )
+
+    return response.json()
 
     async def post(self, endpoint: str, data: Dict) -> Any:
         """Make authenticated POST request."""
