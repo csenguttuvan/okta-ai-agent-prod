@@ -218,7 +218,7 @@ def add_users_to_group_by_attribute(
 ) -> dict:
     """Find users by profile attribute and add them all to a group in one operation.
     
-    Example: "Add all users with division='Corp IT'
+    Example: "Add all users with division='Corporate IT'
     
     This combines search + batch group assignment.
     

@@ -4,43 +4,47 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'src/okta_mcp_server/**'
-      - 'src/auth_gateway/**'
-      - 'Dockerfile'
-      - '.github/workflows/deploy.yml'
 
 jobs:
   build-mcp-server:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Check if MCP server files changed
-        id: filter
-        uses: dorny/paths-filter@v2
-        with:
-          filters: |
-            mcp:
-              - 'src/okta_mcp_server/**'
-              - 'Dockerfile'
-      
       - name: Checkout code
-        if: steps.filter.outputs.mcp == 'true'
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 2  # Need at least 2 commits to compare
+      
+      - name: Check if MCP server files changed
+        id: check_mcp
+        run: |
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Check if any files in src/okta_mcp_server changed
+          if echo "$CHANGED_FILES" | grep -q '^src/okta_mcp_server/'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "✅ MCP server files changed - will build"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️  No MCP server changes - skipping build"
+          fi
       
       - name: Set up Docker Buildx
-        if: steps.filter.outputs.mcp == 'true'
+        if: steps.check_mcp.outputs.changed == 'true'
         uses: docker/setup-buildx-action@v2
       
       - name: Login to Docker Hub
-        if: steps.filter.outputs.mcp == 'true'
+        if: steps.check_mcp.outputs.changed == 'true'
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
       - name: Build MCP server image for scanning
-        if: steps.filter.outputs.mcp == 'true'
+        if: steps.check_mcp.outputs.changed == 'true'
         uses: docker/build-push-action@v4
         with:
           context: .
@@ -51,7 +55,7 @@ jobs:
           cache-from: type=registry,ref=blackstaa/okta-mcp-server:latest
       
       - name: Run Trivy vulnerability scanner
-        if: steps.filter.outputs.mcp == 'true'
+        if: steps.check_mcp.outputs.changed == 'true'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'blackstaa/okta-mcp-server:scan'
@@ -60,7 +64,7 @@ jobs:
           exit-code: '1'
       
       - name: Build and push MCP server to Docker Hub
-        if: steps.filter.outputs.mcp == 'true'
+        if: steps.check_mcp.outputs.changed == 'true'
         uses: docker/build-push-action@v4
         with:
           context: .
@@ -72,7 +76,7 @@ jobs:
           cache-to: type=inline
       
       - name: Deployment summary
-        if: steps.filter.outputs.mcp == 'true'
+        if: steps.check_mcp.outputs.changed == 'true'
         run: |
           echo "✅ blackstaa/okta-mcp-server:latest pushed to Docker Hub"
           echo "⏳ Watchtower will auto-deploy within 5 minutes"
@@ -81,63 +85,38 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Check if gateway files changed
-        id: filter
-        uses: dorny/paths-filter@v2
-        with:
-          filters: |
-            gateway:
-              - 'src/auth_gateway/**'
-      
       - name: Checkout code
-        if: steps.filter.outputs.gateway == 'true'
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
+      
+      - name: Check if gateway files changed
+        id: check_gateway
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          if echo "$CHANGED_FILES" | grep -q '^src/auth_gateway/'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Gateway files changed - will build"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️  No gateway changes - skipping build"
+          fi
       
       - name: Set up Docker Buildx
-        if: steps.filter.outputs.gateway == 'true'
+        if: steps.check_gateway.outputs.changed == 'true'
         uses: docker/setup-buildx-action@v2
       
       - name: Login to Docker Hub
-        if: steps.filter.outputs.gateway == 'true'
+        if: steps.check_gateway.outputs.changed == 'true'
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
       - name: Build gateway image for scanning
-        if: steps.filter.outputs.gateway == 'true'
+        if: steps.check_gateway.outputs.changed == 'true'
         uses: docker/build-push-action@v4
-        with:
-          context: ./src/auth_gateway
-          file: ./src/auth_gateway/Dockerfile
-          load: true
-          tags: blackstaa/okta-mcp-gateway:scan
-          platforms: linux/amd64
-          cache-from: type=registry,ref=blackstaa/okta-mcp-gateway:latest
-      
-      - name: Run Trivy vulnerability scanner
-        if: steps.filter.outputs.gateway == 'true'
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'blackstaa/okta-mcp-gateway:scan'
-          format: 'table'
-          severity: 'CRITICAL'
-          exit-code: '1'
-      
-      - name: Build and push gateway to Docker Hub
-        if: steps.filter.outputs.gateway == 'true'
-        uses: docker/build-push-action@v4
-        with:
-          context: ./src/auth_gateway
-          file: ./src/auth_gateway/Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: blackstaa/okta-mcp-gateway:latest
-          cache-from: type=registry,ref=blackstaa/okta-mcp-gateway:latest
-          cache-to: type=inline
-      
-      - name: Deployment summary
-        if: steps.filter.outputs.gateway == 'true'
-        run: |
-          echo "✅ blackstaa/okta-mcp-gateway:latest pushed to Docker Hub"
-          echo "⏳ Watchtower will auto-deploy within 5 minutes"
+        
