@@ -259,3 +259,74 @@ def check_permissions(ctx: Context | None = None) -> dict:
         "expires_in_seconds": token_info.get("expires_in"),
         "is_read_only": not any(s.endswith(".manage") for s in scopes)
     }
+
+
+
+@mcp.tool()
+def search_users_by_attribute(
+    attribute: str,
+    value: str,
+    limit: int = 200,
+    ctx: Context = None
+) -> dict:
+    """Search users by profile attributes (e.g., department, division, title, location).
+    
+    Supports filtering by any profile attribute:
+    - division: User's division (e.g., "Corp IT", "Engineering")
+    - department: Department name
+    - title: Job title
+    - location: Office location
+    - Any custom profile attribute
+    
+    Args:
+        attribute: Profile attribute name (e.g., 'division', 'department', 'title')
+        value: Attribute value to match
+        limit: Maximum number of results (default: 200)
+    
+    Returns:
+        Dict with matching users
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Searching users with {attribute}={value}")
+    
+    try:
+        client = get_client()
+        
+        # Build Okta search filter: profile.{attribute} eq "{value}"
+        search_filter = f'profile.{attribute} eq "{value}"'
+        
+        # Use Okta's search API
+        response = client.get(f"/api/v1/users", params={
+            "search": search_filter,
+            "limit": limit
+        })
+        
+        users = []
+        for user in response:
+            user_data = {
+                "id": user.get("id"),
+                "email": user.get("profile", {}).get("email"),
+                "firstName": user.get("profile", {}).get("firstName"),
+                "lastName": user.get("profile", {}).get("lastName"),
+                "status": user.get("status"),
+                attribute: user.get("profile", {}).get(attribute)
+            }
+            users.append(user_data)
+        
+        logger.info(f"[caller={caller}] Found {len(users)} users with {attribute}={value}")
+        
+        return {
+            "success": True,
+            "users": users,
+            "count": len(users),
+            "filter": search_filter
+        }
+        
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error searching users by attribute: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "users": [],
+            "count": 0
+        }
