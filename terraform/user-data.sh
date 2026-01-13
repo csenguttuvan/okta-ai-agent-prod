@@ -451,14 +451,18 @@ compactor:
   shared_store: filesystem
 
 limits_config:
-  ingestion_rate_mb: 16
-  ingestion_burst_size_mb: 32
+  ingestion_rate_mb: 32
+  ingestion_burst_size_mb: 64
   max_query_series: 100000
-  max_query_length: 24h
-  max_entries_limit_per_query: 5000
-  max_query_parallelism: 32
-  per_stream_rate_limit: 16MB
-  per_stream_rate_limit_burst: 32MB
+  max_query_length: 48h
+  max_entries_limit_per_query: 10000
+  max_query_parallelism: 64
+  per_stream_rate_limit: 32MB
+  per_stream_rate_limit_burst: 64MB
+  max_streams_per_user: 20000
+
+
+
 
 chunk_store_config:
   max_look_back_period: 0s
