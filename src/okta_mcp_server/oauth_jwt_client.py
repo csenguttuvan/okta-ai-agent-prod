@@ -2,9 +2,9 @@ import os
 import time
 import jwt
 import requests
+import threading
 from typing import Optional, Dict, Any
 from loguru import logger
-
 
 class OktaOAuthJWTClient:
     """OAuth 2.0 client for Okta API using private_key_jwt authentication."""
@@ -29,7 +29,6 @@ class OktaOAuthJWTClient:
 
         # Org authorization server endpoint
         self.token_url = f"{self.base_url}/oauth2/v1/token"
-
         logger.info("Okta OAuth JWT Client initialized")
         logger.info(f"Base URL: {self.base_url}")
         logger.info(f"Token URL: {self.token_url}")
@@ -37,6 +36,8 @@ class OktaOAuthJWTClient:
 
         self.access_token: Optional[str] = None
         self.token_info: Dict[str, Any] = {}
+        self._token_expiry: float = 0
+        self._token_lock = threading.Lock()  # ✅ Thread safety
 
         # Get initial token
         self._fetch_token()
@@ -44,7 +45,6 @@ class OktaOAuthJWTClient:
     def _create_client_assertion(self) -> str:
         """Create JWT for client assertion."""
         now = int(time.time())
-        
         payload = {
             "iss": self.client_id,
             "sub": self.client_id,
@@ -62,51 +62,64 @@ class OktaOAuthJWTClient:
 
         return token
 
+    def _is_token_valid(self) -> bool:
+        """Check if token is still valid (5min buffer)."""
+        if not self.access_token or not self._token_expiry:
+            return False
+        return time.time() < (self._token_expiry - 300)
+
     def _fetch_token(self):
         """Fetch access token using private_key_jwt."""
-        logger.info("Requesting OAuth token with private_key_jwt...")
-        logger.debug(f"Client ID: {self.client_id}")
-        logger.debug(f"Requested scopes: {' '.join(self.scopes)}")
+        with self._token_lock:  # ✅ Thread-safe token refresh
+            # Double-check if another thread already refreshed
+            if self._is_token_valid():
+                logger.debug("Token still valid, skipping refresh")
+                return
 
-        try:
-            client_assertion = self._create_client_assertion()
+            logger.info("Requesting OAuth token with private_key_jwt...")
+            logger.debug(f"Client ID: {self.client_id}")
+            logger.debug(f"Requested scopes: {' '.join(self.scopes)}")
 
-            response = requests.post(
-                self.token_url,
-                data={
-                    "grant_type": "client_credentials",
-                    "scope": " ".join(self.scopes),
-                    "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-                    "client_assertion": client_assertion
-                },
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Accept": "application/json",
-                },
-            )
+            try:
+                client_assertion = self._create_client_assertion()
+                response = requests.post(
+                    self.token_url,
+                    data={
+                        "grant_type": "client_credentials",
+                        "scope": " ".join(self.scopes),
+                        "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                        "client_assertion": client_assertion
+                    },
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Accept": "application/json",
+                    },
+                )
 
-            if response.status_code != 200:
-                logger.error(f"Token request failed: {response.status_code}")
-                logger.error(f"Response: {response.text}")
+                if response.status_code != 200:
+                    logger.error(f"Token request failed: {response.status_code}")
+                    logger.error(f"Response: {response.text}")
+                    response.raise_for_status()
 
-            response.raise_for_status()
-            self.token_info = response.json()
-            self.access_token = self.token_info["access_token"]
+                self.token_info = response.json()
+                self.access_token = self.token_info["access_token"]
+                expires_in = self.token_info.get("expires_in", 3600)
+                self._token_expiry = time.time() + expires_in  # ✅ Track expiry
 
-            granted_scopes = self.token_info.get("scope", "").split()
-            logger.info("✅ OAuth token obtained successfully")
-            logger.info(f"Granted scopes: {' '.join(granted_scopes)}")
-            logger.info(f"Token type: {self.token_info.get('token_type')}")
-            logger.info(f"Expires in: {self.token_info.get('expires_in')} seconds")
+                granted_scopes = self.token_info.get("scope", "").split()
+                logger.info("✅ OAuth token obtained successfully")
+                logger.info(f"Granted scopes: {' '.join(granted_scopes)}")
+                logger.info(f"Token type: {self.token_info.get('token_type')}")
+                logger.info(f"Expires in: {expires_in} seconds")
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to fetch OAuth token: {str(e)}")
-            raise
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Failed to fetch OAuth token: {str(e)}")
+                raise
 
-    def _get_headers(self) -> Dict[str, str]:
+    def get_headers(self) -> Dict[str, str]:
         """Get headers with OAuth Bearer token."""
-        if not self.access_token:
-            logger.warning("No access token, fetching new one...")
+        if not self._is_token_valid():
+            logger.warning("Token expired or missing, refreshing...")
             self._fetch_token()
 
         return {
@@ -115,13 +128,14 @@ class OktaOAuthJWTClient:
             "Content-Type": "application/json",
         }
 
-    async def get(self, endpoint: str, params: Optional[Dict] = None) -> Any:
+    def get(self, endpoint: str, params: Optional[Dict] = None) -> Any:
         url = f"{self.base_url}{endpoint}"
-        response = requests.get(url, headers=self._get_headers(), params=params)
+        response = requests.get(url, headers=self.get_headers(), params=params)
 
         if response.status_code == 401:
+            logger.warning("Got 401, refreshing token and retrying...")
             self._fetch_token()
-        response = requests.get(url, headers=self._get_headers(), params=params)
+            response = requests.get(url, headers=self.get_headers(), params=params)
 
         if response.status_code == 403:
             raise PermissionError(f"❌ Insufficient scope for {endpoint}")
@@ -136,10 +150,15 @@ class OktaOAuthJWTClient:
 
         return response.json()
 
-    async def post(self, endpoint: str, data: Dict) -> Any:
+    def post(self, endpoint: str, data: Dict) -> Any:
         """Make authenticated POST request."""
         url = f"{self.base_url}{endpoint}"
-        response = requests.post(url, headers=self._get_headers(), json=data)
+        response = requests.post(url, headers=self.get_headers(), json=data)
+
+        if response.status_code == 401:
+            logger.warning("Got 401, refreshing token and retrying...")
+            self._fetch_token()
+            response = requests.post(url, headers=self.get_headers(), json=data)
 
         if response.status_code == 403:
             raise PermissionError(f"❌ Write operation blocked: {endpoint}")
@@ -147,13 +166,17 @@ class OktaOAuthJWTClient:
         response.raise_for_status()
         return response.json()
 
-    async def put(self, endpoint: str, data: Optional[Dict] = None) -> Any:
+    def put(self, endpoint: str, data: Optional[Dict] = None) -> Any:
         """Make authenticated PUT request."""
         url = f"{self.base_url}{endpoint}"
-        if data:
-            response = requests.put(url, headers=self._get_headers(), json=data)
-        else:
-            response = requests.put(url, headers=self._get_headers())
+        response = requests.put(url, headers=self.get_headers(), json=data) if data is not None else \
+            requests.put(url, headers=self.get_headers())
+
+        if response.status_code == 401:
+            logger.warning("Got 401, refreshing token and retrying...")
+            self._fetch_token()
+            response = requests.put(url, headers=self.get_headers(), json=data) if data is not None else \
+                requests.put(url, headers=self.get_headers())
 
         if response.status_code == 403:
             raise PermissionError(f"❌ Write operation blocked: {endpoint}")
@@ -161,10 +184,15 @@ class OktaOAuthJWTClient:
         response.raise_for_status()
         return response.json() if response.text else {}
 
-    async def delete(self, endpoint: str) -> Any:
+    def delete(self, endpoint: str) -> Any:
         """Make authenticated DELETE request."""
         url = f"{self.base_url}{endpoint}"
-        response = requests.delete(url, headers=self._get_headers())
+        response = requests.delete(url, headers=self.get_headers())
+
+        if response.status_code == 401:
+            logger.warning("Got 401, refreshing token and retrying...")
+            self._fetch_token()
+            response = requests.delete(url, headers=self.get_headers())
 
         if response.status_code == 403:
             raise PermissionError(f"❌ Delete operation blocked: {endpoint}")
@@ -182,6 +210,7 @@ class OktaOAuthJWTClient:
 
 
 okta_client = None
+
 
 def init_okta_client():
     """Initialize the global Okta OAuth JWT client."""

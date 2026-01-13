@@ -149,20 +149,34 @@ EOF
 
 chmod 600 .env
 
-# Create .env.gateway file
-cat > .env.gateway << EOF
+# Create .env.gateway.readonly file
+cat > .env.gateway.readonly << EOF
 OKTA_CLIENT_ID=${okta_gateway_client_id}
 OKTA_ISSUER=${okta_issuer}
 GATEWAY_PORT=9000
 SESSION_SECRET=$GATEWAY_SESSION_SECRET
 REDIRECT_URI=${gateway_redirect_uri}
-MCP_ADMIN_URL=http://127.0.0.1:8080
-MCP_READONLY_URL=http://127.0.0.1:8081
 INTERNAL_AUTH_TOKEN=$GATEWAY_INTERNAL_AUTH_TOKEN
-ADMIN_GROUP_NAME=Okta-MCP-Admins
+ACCESS_LEVEL=readonly
+MCP_READONLY_URL=http://127.0.0.1:8081
 EOF
 
-chmod 600 .env.gateway
+chmod 600 .env.gateway.readonly
+
+# Create .env.gateway.admin file
+cat > .env.gateway.admin << EOF
+OKTA_CLIENT_ID=${okta_gateway_client_id}
+OKTA_ISSUER=${okta_issuer}
+GATEWAY_PORT=9001
+SESSION_SECRET=$GATEWAY_SESSION_SECRET
+REDIRECT_URI=${gateway_redirect_uri}
+INTERNAL_AUTH_TOKEN=$GATEWAY_INTERNAL_AUTH_TOKEN
+ACCESS_LEVEL=admin
+MCP_ADMIN_URL=http://127.0.0.1:8080
+EOF
+
+chmod 600 .env.gateway.admin
+
 
 # Create Loki data directories with correct permissions
 mkdir -p /opt/okta-litellm/{loki-data,loki-wal}
@@ -197,10 +211,11 @@ services:
       - MCP_SERVER_NAME=okta-admin
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/sse"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:8080/sse | head -c 1 > /dev/null"]
+      interval: 30s
+      timeout: 10s
       retries: 3
+      start_period: 30s
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
@@ -222,10 +237,11 @@ services:
       - MCP_SERVER_NAME=okta-readonly
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/sse"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:8081/sse | head -c 1 > /dev/null"]
+      interval: 30s
+      timeout: 10s
       retries: 3
+      start_period: 30s
     labels:
      - "com.centurylinklabs.watchtower.enable=true"
   
@@ -300,14 +316,28 @@ services:
       - logging
     restart: unless-stopped
 
-  okta-mcp-gateway:
+  okta-mcp-gateway-readonly:
     image: blackstaa/okta-mcp-gateway:latest
-    container_name: okta-mcp-gateway
+    container_name: okta-mcp-gateway-readonly
     network_mode: "host"
-    env_file: .env.gateway
+    env_file: .env.gateway.readonly
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:9000/health | head -c 1 > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  okta-mcp-gateway-admin:
+    image: blackstaa/okta-mcp-gateway:latest
+    container_name: okta-mcp-gateway-admin
+    network_mode: "host"
+    env_file: .env.gateway.admin
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:9001/health | head -c 1 > /dev/null"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -319,16 +349,16 @@ COMPOSE
 # Create LiteLLM config
 cat > litellm-config.yaml << EOF
 model_list:
-  # Claude 3.5 Sonnet
+  # Claude 4.5 Sonnet
   - model_name: bedrock-sonnet
     litellm_params:
-      model: bedrock/anthropic.claude-3-sonnet-20240229-v1:0
+      model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
       aws_region_name: ${aws_region}
 
-  # Claude 3.5 Haiku (fast, cheap)
+  # Claude 4.5 Haiku (fast, cheap)
   - model_name: bedrock-haiku
     litellm_params:
-      model: bedrock/eu.anthropic.claude-3-haiku-20240307-v1:0
+      model: bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0
       aws_region_name: ${aws_region}
 
   # Llama 3.1 70B (open source)

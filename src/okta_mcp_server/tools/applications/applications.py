@@ -9,7 +9,7 @@ from okta_mcp_server.context import get_caller_email, get_caller_groups
 
 
 @mcp.tool()
-async def list_applications(
+def list_applications(
     ctx: Context | None = None,
     limit: int = 20,
     after: Optional[str] = None,
@@ -36,7 +36,7 @@ async def list_applications(
 
     try:
         client = get_client()
-        apps = await client.get("/api/v1/apps", params=params)
+        apps = client.get("/api/v1/apps", params=params)
         logger.info(f"[caller={caller}] Found {len(apps)} applications")
         return {
             "applications": apps,
@@ -50,7 +50,7 @@ async def list_applications(
         raise
 
 @mcp.tool()
-async def get_application(
+def get_application(
     ctx: Context | None = None,
     app_id: str = ""
 ) -> Optional[Dict[str, Any]]:
@@ -71,7 +71,7 @@ async def get_application(
 
     try:
         client = get_client()
-        app = await client.get(f"/api/v1/apps/{app_id}")
+        app = client.get(f"/api/v1/apps/{app_id}")
         logger.info(f"[caller={caller}] Retrieved application: {app.get('label', 'N/A')}")
         return app
     except PermissionError as e:
@@ -82,7 +82,7 @@ async def get_application(
         raise
 
 @mcp.tool()
-async def list_application_users(
+def list_application_users(
     ctx: Context | None = None,
     app_id: str = "",
     limit: int = 50
@@ -107,7 +107,7 @@ async def list_application_users(
 
     try:
         client = get_client()
-        users = await client.get(f"/api/v1/apps/{app_id}/users", params=params)
+        users = client.get(f"/api/v1/apps/{app_id}/users", params=params)
         logger.info(f"[caller={caller}] Found {len(users)} users for application {app_id}")
         return {
             "users": users,
@@ -122,7 +122,7 @@ async def list_application_users(
         raise
 
 @mcp.tool()
-async def list_application_groups(
+def list_application_groups(
     ctx: Context | None = None,
     app_id: str = "",
     limit: int = 50
@@ -147,7 +147,7 @@ async def list_application_groups(
 
     try:
         client = get_client()
-        groups = await client.get(f"/api/v1/apps/{app_id}/groups", params=params)
+        groups = client.get(f"/api/v1/apps/{app_id}/groups", params=params)
         logger.info(f"[caller={caller}] Found {len(groups)} groups for application {app_id}")
         return {
             "groups": groups,
@@ -162,7 +162,7 @@ async def list_application_groups(
         raise
 
 @mcp.tool()
-async def assign_user_to_application(
+def assign_user_to_application(
     ctx: Context | None = None,
     app_id: str = "",
     user_id: str = ""
@@ -185,7 +185,7 @@ async def assign_user_to_application(
 
     try:
         client = get_client()
-        assignment = await client.post(
+        assignment = client.post(
             f"/api/v1/apps/{app_id}/users",
             data={"id": user_id}
         )
@@ -199,7 +199,7 @@ async def assign_user_to_application(
         raise
 
 @mcp.tool()
-async def assign_group_to_application(
+def assign_group_to_application(
     ctx: Context | None = None,
     app_id: str = "",
     group_id: str = ""
@@ -222,7 +222,7 @@ async def assign_group_to_application(
 
     try:
         client = get_client()
-        assignment = await client.put(
+        assignment = client.put(
             f"/api/v1/apps/{app_id}/groups/{group_id}",
             data={}
         )

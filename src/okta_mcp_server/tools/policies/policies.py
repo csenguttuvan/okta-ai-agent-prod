@@ -21,7 +21,7 @@ def get_caller_email(ctx: Context | None) -> str:
     return os.getenv('USER_EMAIL', 'unknown')
 
 @mcp.tool()
-async def list_policies(
+def list_policies(
     ctx: Context | None = None,
     type: str = "",
     status: Optional[str] = None,
@@ -73,7 +73,7 @@ async def list_policies(
             params["after"] = after
 
         logger.debug(f"[caller={caller}] Calling Okta API to list policies")
-        policies = await client.get("/api/v1/policies", params=params)
+        policies = client.get("/api/v1/policies", params=params)
 
         if not policies:
             logger.info(f"[caller={caller}] No policies found")
@@ -86,7 +86,7 @@ async def list_policies(
         return {"error": str(e)}
 
 @mcp.tool()
-async def get_policy(
+def get_policy(
     ctx: Context | None = None,
     policy_id: str = ""
 ) -> Optional[Dict[str, Any]]:
@@ -107,7 +107,7 @@ async def get_policy(
 
     try:
         client = get_client()
-        policy = await client.get(f"/api/v1/policies/{policy_id}")
+        policy = client.get(f"/api/v1/policies/{policy_id}")
         logger.info(f"[caller={caller}] Successfully retrieved policy {policy_id}")
         return policy
     except Exception as e:
@@ -115,7 +115,7 @@ async def get_policy(
         return {"error": str(e)}
 
 @mcp.tool()
-async def create_policy(
+def create_policy(
     ctx: Context | None = None,
     policy_data: Dict[str, Any] = None
 ) -> Optional[Dict[str, Any]]:
@@ -145,7 +145,7 @@ async def create_policy(
 
     try:
         client = get_client()
-        policy = await client.post("/api/v1/policies", data=policy_data)
+        policy = client.post("/api/v1/policies", data=policy_data)
         logger.info(f"[caller={caller}] Created policy: {policy.get('id', 'N/A')}")
         return policy
     except Exception as e:
@@ -153,7 +153,7 @@ async def create_policy(
         return {"error": str(e)}
 
 @mcp.tool()
-async def update_policy(
+def update_policy(
     ctx: Context | None = None,
     policy_id: str = "",
     policy_data: Dict[str, Any] = None
@@ -176,7 +176,7 @@ async def update_policy(
 
     try:
         client = get_client()
-        policy = await client.put(f"/api/v1/policies/{policy_id}", data=policy_data)
+        policy = client.put(f"/api/v1/policies/{policy_id}", data=policy_data)
         logger.info(f"[caller={caller}] Updated policy: {policy_id}")
         return policy
     except Exception as e:
@@ -184,7 +184,7 @@ async def update_policy(
         return {"error": str(e)}
 
 @mcp.tool()
-async def delete_policy(
+def delete_policy(
     ctx: Context | None = None,
     policy_id: str = ""
 ) -> Dict[str, Any]:
@@ -205,7 +205,7 @@ async def delete_policy(
 
     try:
         client = get_client()
-        await client.delete(f"/api/v1/policies/{policy_id}")
+        client.delete(f"/api/v1/policies/{policy_id}")
         logger.info(f"[caller={caller}] Deleted policy: {policy_id}")
         return {
             "success": True,
@@ -216,7 +216,7 @@ async def delete_policy(
         return {"error": str(e)}
 
 @mcp.tool()
-async def activate_policy(
+def activate_policy(
     ctx: Context | None = None,
     policy_id: str = ""
 ) -> Dict[str, Any]:
@@ -237,7 +237,7 @@ async def activate_policy(
 
     try:
         client = get_client()
-        await client.post(f"/api/v1/policies/{policy_id}/lifecycle/activate")
+        client.post(f"/api/v1/policies/{policy_id}/lifecycle/activate")
         logger.info(f"[caller={caller}] Activated policy: {policy_id}")
         return {
             "success": True,
@@ -248,7 +248,7 @@ async def activate_policy(
         return {"error": str(e)}
 
 @mcp.tool()
-async def deactivate_policy(
+def deactivate_policy(
     ctx: Context | None = None,
     policy_id: str = ""
 ) -> Dict[str, Any]:
@@ -269,7 +269,7 @@ async def deactivate_policy(
 
     try:
         client = get_client()
-        await client.post(f"/api/v1/policies/{policy_id}/lifecycle/deactivate")
+        client.post(f"/api/v1/policies/{policy_id}/lifecycle/deactivate")
         logger.info(f"[caller={caller}] Deactivated policy: {policy_id}")
         return {
             "success": True,
@@ -280,7 +280,7 @@ async def deactivate_policy(
         return {"error": str(e)}
 
 @mcp.tool()
-async def list_policy_rules(
+def list_policy_rules(
     ctx: Context | None = None,
     policy_id: str = ""
 ) -> Dict[str, Any]:
@@ -303,7 +303,7 @@ async def list_policy_rules(
 
     try:
         client = get_client()
-        rules = await client.get(f"/api/v1/policies/{policy_id}/rules")
+        rules = client.get(f"/api/v1/policies/{policy_id}/rules")
 
         if not rules:
             logger.info(f"[caller={caller}] No policy rules found")
@@ -316,7 +316,7 @@ async def list_policy_rules(
         return {"error": str(e)}
 
 @mcp.tool()
-async def get_policy_rule(
+def get_policy_rule(
     ctx: Context | None = None,
     policy_id: str = "",
     rule_id: str = ""
@@ -339,7 +339,7 @@ async def get_policy_rule(
 
     try:
         client = get_client()
-        rule = await client.get(f"/api/v1/policies/{policy_id}/rules/{rule_id}")
+        rule = client.get(f"/api/v1/policies/{policy_id}/rules/{rule_id}")
         logger.info(f"[caller={caller}] Successfully retrieved rule {rule_id}")
         return rule
     except Exception as e:
@@ -347,7 +347,7 @@ async def get_policy_rule(
         return {"error": str(e)}
 
 @mcp.tool()
-async def create_policy_rule(
+def create_policy_rule(
     ctx: Context | None = None,
     policy_id: str = "",
     rule_data: Dict[str, Any] = None
@@ -375,7 +375,7 @@ async def create_policy_rule(
 
     try:
         client = get_client()
-        rule = await client.post(f"/api/v1/policies/{policy_id}/rules", data=rule_data)
+        rule = client.post(f"/api/v1/policies/{policy_id}/rules", data=rule_data)
         logger.info(f"[caller={caller}] Created rule: {rule.get('id', 'N/A')}")
         return rule
     except Exception as e:
@@ -383,7 +383,7 @@ async def create_policy_rule(
         return {"error": str(e)}
 
 @mcp.tool()
-async def update_policy_rule(
+def update_policy_rule(
     ctx: Context | None = None,
     policy_id: str = "",
     rule_id: str = "",
@@ -408,7 +408,7 @@ async def update_policy_rule(
 
     try:
         client = get_client()
-        rule = await client.put(f"/api/v1/policies/{policy_id}/rules/{rule_id}", data=rule_data)
+        rule = client.put(f"/api/v1/policies/{policy_id}/rules/{rule_id}", data=rule_data)
         logger.info(f"[caller={caller}] Updated rule: {rule_id}")
         return rule
     except Exception as e:
@@ -416,7 +416,7 @@ async def update_policy_rule(
         return {"error": str(e)}
 
 @mcp.tool()
-async def delete_policy_rule(
+def delete_policy_rule(
     ctx: Context | None = None,
     policy_id: str = "",
     rule_id: str = ""
@@ -439,7 +439,7 @@ async def delete_policy_rule(
 
     try:
         client = get_client()
-        await client.delete(f"/api/v1/policies/{policy_id}/rules/{rule_id}")
+        client.delete(f"/api/v1/policies/{policy_id}/rules/{rule_id}")
         logger.info(f"[caller={caller}] Deleted rule: {rule_id}")
         return {
             "success": True,
@@ -450,7 +450,7 @@ async def delete_policy_rule(
         return {"error": str(e)}
 
 @mcp.tool()
-async def activate_policy_rule(
+def activate_policy_rule(
     ctx: Context | None = None,
     policy_id: str = "",
     rule_id: str = ""
@@ -473,7 +473,7 @@ async def activate_policy_rule(
 
     try:
         client = get_client()
-        await client.post(f"/api/v1/policies/{policy_id}/rules/{rule_id}/lifecycle/activate")
+        client.post(f"/api/v1/policies/{policy_id}/rules/{rule_id}/lifecycle/activate")
         logger.info(f"[caller={caller}] Activated rule: {rule_id}")
         return {
             "success": True,
@@ -484,7 +484,7 @@ async def activate_policy_rule(
         return {"error": str(e)}
 
 @mcp.tool()
-async def deactivate_policy_rule(
+def deactivate_policy_rule(
     ctx: Context | None = None,
     policy_id: str = "",
     rule_id: str = ""
@@ -507,7 +507,7 @@ async def deactivate_policy_rule(
 
     try:
         client = get_client()
-        await client.post(f"/api/v1/policies/{policy_id}/rules/{rule_id}/lifecycle/deactivate")
+        client.post(f"/api/v1/policies/{policy_id}/rules/{rule_id}/lifecycle/deactivate")
         logger.info(f"[caller={caller}] Deactivated rule: {rule_id}")
         return {
             "success": True,

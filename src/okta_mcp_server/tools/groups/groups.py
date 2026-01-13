@@ -2,48 +2,61 @@ from typing import Optional, List
 from loguru import logger
 from mcp.server.fastmcp import Context
 from difflib import get_close_matches
+
 from okta_mcp_server.context import get_caller_email, get_caller_groups
-
-
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
 
+
 @mcp.tool()
-async def list_groups(
+def list_groups(
     query: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 100,  # ✅ Fixed: Always int
     ctx: Context | None = None
 ) -> dict:
     """List Okta groups (requires groups.read scope)."""
     caller = get_caller_email()
 
-    if query in ("null", None):
+    # Normalize query
+    if query in ("null", "", None):
         query = None
 
-    logger.info(f"[caller={caller}] listing groups query={query}, limit={limit}")
+    # ✅ Normalize limit (handle string inputs from LLMs)
+    try:
+        limit_int = int(limit) if isinstance(limit, (str, int)) else 100
+    except (TypeError, ValueError):
+        limit_int = 100
+
+    logger.info(f"[caller={caller}] listing groups query={query}, limit={limit_int}")
 
     client = get_client()
-    params = {"limit": limit}
+    params = {"limit": limit_int}
     if query:
         params["q"] = query
 
-    try:
-        groups = await client.get("/api/v1/groups", params=params)
-        logger.info(f"[caller={caller}] Found {len(groups)} groups")
-        return {
-            "groups": groups,
-            "count": len(groups),
-            "query": query
+    groups = client.get("/api/v1/groups", params=params)
+    logger.info(f"[caller={caller}] Found {len(groups)} groups")
+
+    # Return clean list
+    simplified = [
+        {
+            "id": g.get("id"),
+            "name": (g.get("profile") or {}).get("name"),
+            "description": (g.get("profile") or {}).get("description"),
+            "type": g.get("type"),
         }
-    except PermissionError as e:
-        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"[caller={caller}] Error listing groups: {str(e)}")
-        raise
+        for g in groups
+    ]
+
+    return {
+        "groups": simplified,
+        "count": len(simplified),
+        "query": query,
+    }
+
 
 @mcp.tool()
-async def search_groups_fuzzy(
+def search_groups_fuzzy(
     search_term: str,
     limit: int = 200,
     ctx: Context | None = None
@@ -51,9 +64,9 @@ async def search_groups_fuzzy(
     """Fuzzy search Okta groups by name (handles typos and partial names).
 
     This is more forgiving than list_groups:
-        - "disciplew dev" can match "Disciples-dev"
-        - Case-insensitive
-        - Also tries substring matches
+    - "disciplew dev" can match "Disciples-dev"
+    - Case-insensitive
+    - Also tries substring matches
     """
     caller = get_caller_email()
 
@@ -63,9 +76,8 @@ async def search_groups_fuzzy(
     logger.info(f"[caller={caller}] Fuzzy searching groups: {search_term} limit={limit}")
 
     client = get_client()
-
     try:
-        groups = await client.get("/api/v1/groups", params={"limit": limit})
+        groups = client.get("/api/v1/groups", params={"limit": limit})
 
         if not search_term:
             logger.info(f"[caller={caller}] Empty search term, returning all {len(groups)} groups")
@@ -98,6 +110,7 @@ async def search_groups_fuzzy(
             "matched_names": all_match_names,
             "search_type": "fuzzy"
         }
+
     except PermissionError as e:
         logger.error(f"[caller={caller}] Permission denied in fuzzy group search: {str(e)}")
         raise
@@ -105,18 +118,19 @@ async def search_groups_fuzzy(
         logger.error(f"[caller={caller}] Error in fuzzy group search: {str(e)}")
         raise
 
+
 @mcp.tool()
-async def get_group(group_id: str, ctx: Context | None = None) -> dict:
+def get_group(group_id: str, ctx: Context | None = None) -> dict:
     """Get details for a specific group (requires groups.read scope)."""
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Getting group: {group_id}")
 
     client = get_client()
-
     try:
-        group = await client.get(f"/api/v1/groups/{group_id}")
+        group = client.get(f"/api/v1/groups/{group_id}")
         logger.info(f"[caller={caller}] Retrieved group: {group.get('profile', {}).get('name')}")
         return group
+
     except PermissionError as e:
         logger.error(f"[caller={caller}] Permission denied: {str(e)}")
         raise
@@ -124,8 +138,9 @@ async def get_group(group_id: str, ctx: Context | None = None) -> dict:
         logger.error(f"[caller={caller}] Error getting group: {str(e)}")
         raise
 
+
 @mcp.tool()
-async def list_group_users(
+def list_group_users(
     group_id: str,
     limit: int = 100,
     ctx: Context | None = None
@@ -138,13 +153,15 @@ async def list_group_users(
     params = {"limit": limit}
 
     try:
-        users = await client.get(f"/api/v1/groups/{group_id}/users", params=params)
+        users = client.get(f"/api/v1/groups/{group_id}/users", params=params)
         logger.info(f"[caller={caller}] Found {len(users)} users in group")
+
         return {
             "users": users,
             "count": len(users),
             "group_id": group_id
         }
+
     except PermissionError as e:
         logger.error(f"[caller={caller}] Permission denied: {str(e)}")
         raise
@@ -152,8 +169,9 @@ async def list_group_users(
         logger.error(f"[caller={caller}] Error listing group users: {str(e)}")
         raise
 
+
 @mcp.tool()
-async def create_group(
+def create_group(
     name: str,
     description: Optional[str] = None,
     ctx: Context | None = None
@@ -172,9 +190,10 @@ async def create_group(
         profile["description"] = description
 
     try:
-        group = await client.post("/api/v1/groups", data={"profile": profile})
+        group = client.post("/api/v1/groups", data={"profile": profile})
         logger.info(f"[caller={caller}] Created group: {group.get('id')}")
         return group
+
     except PermissionError as e:
         logger.error(f"[caller={caller}] Permission denied: {str(e)}")
         raise
@@ -182,18 +201,19 @@ async def create_group(
         logger.error(f"[caller={caller}] Error creating group: {str(e)}")
         raise
 
+
 @mcp.tool()
-async def delete_group(group_id: str, ctx: Context | None = None) -> dict:
+def delete_group(group_id: str, ctx: Context | None = None) -> dict:
     """Delete an Okta group (requires okta.groups.manage scope)."""
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Deleting group: {group_id}")
 
     client = get_client()
-
     try:
-        await client.delete(f"/api/v1/groups/{group_id}")
+        client.delete(f"/api/v1/groups/{group_id}")
         logger.info(f"[caller={caller}] Deleted group: {group_id}")
         return {"message": f"Group {group_id} deleted successfully"}
+
     except PermissionError as e:
         logger.error(f"[caller={caller}] Permission denied: {str(e)}")
         raise
@@ -201,8 +221,9 @@ async def delete_group(group_id: str, ctx: Context | None = None) -> dict:
         logger.error(f"[caller={caller}] Error deleting group: {str(e)}")
         raise
 
+
 @mcp.tool()
-async def add_user_to_group(
+def add_user_to_group(
     group_id: str,
     user_id: str,
     ctx: Context | None = None
@@ -212,12 +233,12 @@ async def add_user_to_group(
     logger.info(f"[caller={caller}] Adding user {user_id} to group {group_id}")
 
     client = get_client()
-
     try:
-        await client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
+        client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
         logger.info(f"[caller={caller}] Added user {user_id} to group {group_id}")
         logger.info(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=success")
         return {"message": "User added to group successfully"}
+
     except PermissionError as e:
         logger.error(f"[caller={caller}] Permission denied: {str(e)}")
         logger.error(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
@@ -227,8 +248,9 @@ async def add_user_to_group(
         logger.error(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
         raise
 
+
 @mcp.tool()
-async def remove_user_from_group(
+def remove_user_from_group(
     group_id: str,
     user_id: str,
     ctx: Context | None = None
@@ -238,11 +260,11 @@ async def remove_user_from_group(
     logger.info(f"[caller={caller}] Removing user {user_id} from group {group_id}")
 
     client = get_client()
-
     try:
-        await client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
+        client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
         logger.info(f"[caller={caller}] Removed user {user_id} from group {group_id}")
         return {"message": "User removed from group successfully"}
+
     except PermissionError as e:
         logger.error(f"[caller={caller}] Permission denied: {str(e)}")
         raise
@@ -250,8 +272,9 @@ async def remove_user_from_group(
         logger.error(f"[caller={caller}] Error removing user from group: {str(e)}")
         raise
 
+
 @mcp.tool()
-async def remove_users_from_group(
+def remove_users_from_group(
     group_id: str,
     user_ids: List[str],
     ctx: Context | None = None
@@ -274,10 +297,11 @@ async def remove_users_from_group(
 
     for user_id in user_ids:
         try:
-            await client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
+            client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
             results.append({"user_id": user_id, "status": "removed"})
             logger.info(f"[caller={caller}] Removed user {user_id} from group {group_id}")
             logger.info(f"tool=remove_users_from_group group_id={group_id} user_id={user_id} result=success")
+
         except Exception as e:
             failed.append({"user_id": user_id, "error": str(e)})
             logger.error(f"[caller={caller}] Failed to remove user {user_id}: {str(e)}")

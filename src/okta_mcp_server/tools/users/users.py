@@ -33,7 +33,6 @@ def _normalize_user(u: dict) -> dict:
         "login": profile.get("login"),
         "first_name": profile.get("firstName"),
         "last_name": profile.get("lastName"),
-        "display_name": profile.get("displayName"),
     }
 
 
@@ -42,7 +41,7 @@ def _normalize_user(u: dict) -> dict:
 # ---------------------------
 
 @mcp.tool()
-async def list_users(
+def list_users(
     query: Optional[str] = None,
     limit: int = 100,
     ctx: Context | None = None
@@ -60,7 +59,7 @@ async def list_users(
         params["search"] = query
 
     client = get_client()
-    users = await client.get("/api/v1/users", params=params)
+    users = client.get("/api/v1/users", params=params)
 
     normalized = [_normalize_user(u) for u in users]
 
@@ -74,7 +73,7 @@ async def list_users(
 
 
 @mcp.tool()
-async def find_user(identifier: str, ctx: Context | None = None) -> dict:
+def find_user(identifier: str, ctx: Context | None = None) -> dict:
     """Universal user lookup with exact + fuzzy fallback."""
     caller = get_caller_email()
 
@@ -90,7 +89,7 @@ async def find_user(identifier: str, ctx: Context | None = None) -> dict:
 
     # Exact match
     try:
-        user = await client.get(f"/api/v1/users/{identifier}")
+        user = client.get(f"/api/v1/users/{identifier}")
         logger.info(f"[caller={caller}] Exact match found: {user['profile'].get('email')}")
         return {
             "user": _normalize_user(user),
@@ -102,7 +101,7 @@ async def find_user(identifier: str, ctx: Context | None = None) -> dict:
 
     # Fuzzy fallback
     search_term = identifier.replace("@kaltura.com", "").replace("@", " ")
-    fuzzy = await search_users_fuzzy(search_term, limit=200, ctx=ctx)
+    fuzzy = search_users_fuzzy(search_term, limit=200, ctx=ctx)
 
     if fuzzy["count"] == 0:
         raise ValueError(f"No users found matching {identifier}")
@@ -118,19 +117,19 @@ async def find_user(identifier: str, ctx: Context | None = None) -> dict:
 
 
 @mcp.tool()
-async def get_user(user_id: str, ctx: Context | None = None) -> dict:
+def get_user(user_id: str, ctx: Context | None = None) -> dict:
     """Get user by exact Okta ID or login."""
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Getting user: {user_id}")
 
     client = get_client()
-    user = await client.get(f"/api/v1/users/{user_id}")
+    user = client.get(f"/api/v1/users/{user_id}")
 
     return _normalize_user(user)
 
 
 @mcp.tool()
-async def search_users(
+def search_users(
     search: str,
     limit: int = 50,
     ctx: Context | None = None
@@ -146,14 +145,14 @@ async def search_users(
     client = get_client()
 
     if not search:
-        users = await client.get("/api/v1/users", params={"limit": limit})
+        users = client.get("/api/v1/users", params={"limit": limit})
     else:
         search_query = (
             f'profile.firstName sw "{search}" or '
             f'profile.lastName sw "{search}" or '
             f'profile.email sw "{search}"'
         )
-        users = await client.get(
+        users = client.get(
             "/api/v1/users",
             params={"search": search_query, "limit": limit}
         )
@@ -168,7 +167,7 @@ async def search_users(
 
 
 @mcp.tool()
-async def search_users_fuzzy(
+def search_users_fuzzy(
     search_term: str,
     limit: int = 200,
     ctx: Context | None = None
@@ -182,7 +181,7 @@ async def search_users_fuzzy(
     logger.info(f"[caller={caller}] Fuzzy searching users: {search_term}")
 
     client = get_client()
-    users = await client.get("/api/v1/users", params={"limit": limit})
+    users = client.get("/api/v1/users", params={"limit": limit})
 
     if not search_term:
         normalized = [_normalize_user(u) for u in users]
@@ -221,13 +220,13 @@ async def search_users_fuzzy(
 
 
 @mcp.tool()
-async def get_user_groups(user_id: str, ctx: Context | None = None) -> dict:
+def get_user_groups(user_id: str, ctx: Context | None = None) -> dict:
     """Get groups a user belongs to."""
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Getting groups for user: {user_id}")
 
     client = get_client()
-    groups = await client.get(f"/api/v1/users/{user_id}/groups")
+    groups = client.get(f"/api/v1/users/{user_id}/groups")
 
     return {
         "groups": [
@@ -244,7 +243,7 @@ async def get_user_groups(user_id: str, ctx: Context | None = None) -> dict:
 
 
 @mcp.tool()
-async def check_permissions(ctx: Context | None = None) -> dict:
+def check_permissions(ctx: Context | None = None) -> dict:
     """Return granted OAuth scopes and capability flags."""
     client = get_client()
     scopes = client.get_granted_scopes()

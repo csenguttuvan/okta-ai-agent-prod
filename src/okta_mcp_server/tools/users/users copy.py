@@ -9,7 +9,7 @@ from okta_mcp_server.context import get_caller_email, get_caller_groups
 
 
 @mcp.tool()
-async def list_users(
+def list_users(
     query: Optional[str] = None,
     limit: int = 100,
     ctx: Context | None = None
@@ -51,7 +51,7 @@ async def list_users(
         raise
 
 @mcp.tool()
-async def find_user(identifier: str, ctx: Context | None = None) -> dict:
+def find_user(identifier: str, ctx: Context | None = None) -> dict:
     """PRIMARY TOOL for user lookup - Universal user finder.
 
     Finds users by ANY identifier with smart fallback to fuzzy search.
@@ -132,7 +132,7 @@ async def find_user(identifier: str, ctx: Context | None = None) -> dict:
         raise
 
 @mcp.tool()
-async def get_user(user_id: str, ctx: Context | None = None) -> dict:
+def get_user(user_id: str, ctx: Context | None = None) -> dict:
     """Get user by EXACT Okta user ID or email (requires users.read scope).
 
     For most lookups, use find_user instead - it's smarter and handles fuzzy matching.
@@ -160,7 +160,7 @@ async def get_user(user_id: str, ctx: Context | None = None) -> dict:
         raise
 
 @mcp.tool()
-async def search_users(
+def search_users(
     search: str,
     limit: int = 50,
     ctx: Context | None = None
@@ -219,7 +219,7 @@ async def search_users(
         raise
 
 @mcp.tool()
-async def search_users_fuzzy(
+def search_users_fuzzy(
     search_term: str,
     limit: int = 200,
     ctx: Context | None = None
@@ -293,7 +293,7 @@ async def search_users_fuzzy(
         raise
 
 @mcp.tool()
-async def get_user_groups(user_id: str, ctx: Context | None = None) -> dict:
+def get_user_groups(user_id: str, ctx: Context | None = None) -> dict:
     """Get groups that a user belongs to (requires users.read + groups.read scopes).
 
     Args:
@@ -322,7 +322,7 @@ async def get_user_groups(user_id: str, ctx: Context | None = None) -> dict:
         raise
 
 @mcp.tool()
-async def check_permissions(ctx: Context | None = None) -> dict:
+def check_permissions(ctx: Context | None = None) -> dict:
     """Check what OAuth scopes are currently granted.
 
     Returns:

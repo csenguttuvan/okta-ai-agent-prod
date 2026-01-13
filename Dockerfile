@@ -45,7 +45,7 @@ EXPOSE 8080
 
 # Health check endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
-    CMD curl -f http://localhost:8080/ || exit 1
+    CMD sh -c "curl -f --silent --max-time 2 http://localhost:${MCP_PORT:-8080}/sse | head -c 1 > /dev/null"
 
 # Run the MCP server
 CMD [".venv/bin/python", "-m", "okta_mcp_server.server"]

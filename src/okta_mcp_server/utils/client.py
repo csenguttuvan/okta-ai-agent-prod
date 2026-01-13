@@ -10,7 +10,7 @@ from loguru import logger
 from okta.client import Client as OktaClient
 
 
-async def get_okta_client() -> OktaClient:
+def get_okta_client() -> OktaClient:
     """Initialize and return an Okta client using API token authentication."""
     logger.debug("Initializing Okta client")
     

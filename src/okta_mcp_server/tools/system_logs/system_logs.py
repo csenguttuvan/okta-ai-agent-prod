@@ -7,7 +7,7 @@ from okta_mcp_server.oauth_jwt_client import get_client
 from okta_mcp_server.context import get_caller_email, get_caller_groups
 
 @mcp.tool()
-async def get_logs(
+def get_logs(
     ctx: Context | None = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
@@ -31,7 +31,7 @@ async def get_logs(
         params["q"] = query
 
     try:
-        logs = await get_client().get("/api/v1/logs", params=params)
+        logs = get_client().get("/api/v1/logs", params=params)
         logger.info(f"[caller={caller}] Retrieved {len(logs)} log entries")
         return {
             "logs": logs,

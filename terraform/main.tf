@@ -76,24 +76,22 @@ data "aws_ami" "amazon_linux_2023" {
   }
 }
 
-# Create persistent EBS volume
-resource "aws_ebs_volume" "grafana_data" {
-  availability_zone = data.aws_subnet.existing_private.availability_zone
-  size              = 10
-  type              = "gp3"
-
-  tags = {
-    Name = "grafana-data"
-  }
-
-  lifecycle {
-    prevent_destroy = true # Protect from accidental deletion
+# Reference existing EBS volume (no longer managed by Terraform)
+data "aws_ebs_volume" "grafana_data" {
+  filter {
+    name   = "volume-id"
+    values = ["vol-006e61b5ad4941092"]  # ✅ Your actual volume ID
   }
 }
 
-# Attach to instance
+
+# Attach existing volume to instance
 resource "aws_volume_attachment" "grafana_data" {
   device_name = "/dev/xvdf"
-  volume_id   = aws_ebs_volume.grafana_data.id
+  volume_id   = data.aws_ebs_volume.grafana_data.id  # ✅ References data source
   instance_id = aws_instance.okta_mcp.id
+  
+  skip_destroy = true  # ✅ Prevent detachment on terraform destroy
+  
+  depends_on = [aws_instance.okta_mcp]
 }

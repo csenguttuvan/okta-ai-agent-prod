@@ -8,7 +8,7 @@ from okta_mcp_server.context import get_caller_email, get_caller_groups
 
 
 @mcp.tool()
-async def create_user(
+def create_user(
     email: str,
     first_name: str,
     last_name: str,
@@ -34,7 +34,7 @@ async def create_user(
     params = {"activate": str(activate).lower()}
     
     try:
-        user = await client.post(f"/api/v1/users?activate={str(activate).lower()}", data=body)
+        user = client.post(f"/api/v1/users?activate={str(activate).lower()}", data=body)
         logger.info(f"[caller={caller}] ✅ Created user: {user.get('id')}")
         return user
     except PermissionError as e:
@@ -45,7 +45,7 @@ async def create_user(
         raise
 
 @mcp.tool()
-async def deactivate_user(user_id: str, ctx: Context = None) -> dict:
+def deactivate_user(user_id: str, ctx: Context = None) -> dict:
     """Deactivate an Okta user (requires okta.users.manage scope)."""
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Deactivating user: {user_id}")
@@ -53,7 +53,7 @@ async def deactivate_user(user_id: str, ctx: Context = None) -> dict:
     client = get_client()
     
     try:
-        await client.post(f"/api/v1/users/{user_id}/lifecycle/deactivate", data={})
+        client.post(f"/api/v1/users/{user_id}/lifecycle/deactivate", data={})
         logger.info(f"[caller={caller}] ✅ Deactivated user: {user_id}")
         return {"message": f"User {user_id} deactivated successfully"}
     except PermissionError as e:
@@ -64,7 +64,7 @@ async def deactivate_user(user_id: str, ctx: Context = None) -> dict:
         raise
 
 @mcp.tool()
-async def delete_user(user_id: str, ctx: Context = None) -> dict:
+def delete_user(user_id: str, ctx: Context = None) -> dict:
     """Delete an Okta user (requires okta.users.manage scope).
     
     Note: User must be deactivated first."""
@@ -74,7 +74,7 @@ async def delete_user(user_id: str, ctx: Context = None) -> dict:
     client = get_client()
     
     try:
-        await client.delete(f"/api/v1/users/{user_id}")
+        client.delete(f"/api/v1/users/{user_id}")
         logger.info(f"[caller={caller}] ✅ Deleted user: {user_id}")
         return {"message": f"User {user_id} deleted successfully"}
     except PermissionError as e:
@@ -85,7 +85,7 @@ async def delete_user(user_id: str, ctx: Context = None) -> dict:
         raise
 
 @mcp.tool()
-async def add_users_to_group(
+def add_users_to_group(
     group_id: str,
     user_ids: List[str]
 ) -> dict:
@@ -108,7 +108,7 @@ async def add_users_to_group(
         
         for user_id in user_ids:
             try:
-                await client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
+                client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
                 results.append({
                     "user_id": user_id,
                     "status": "added"

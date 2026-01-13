@@ -57,37 +57,38 @@ logger.info("  Importing admin user privileges...")
 from okta_mcp_server.tools.users import users_admin
 logger.info("Step 3 complete: All tools imported")
 
+
 def main():
     """Run the Okta MCP server with OAuth authentication."""
     logger.info("Starting Okta MCP Server with OAuth 2.0")
     logger.info("✅ OAuth client initialized successfully")
     logger.info("✅ All MCP tools registered at import time")
-    
+
     # Determine transport mode from environment
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
-    
+
     if transport in ("http", "sse"):
         # Get host and port from environment
         host = os.getenv("MCP_HOST", "0.0.0.0")
         port = int(os.getenv("MCP_PORT", "8000"))
-        
+
         logger.info("MCP Server ready - OAuth mode enabled")
         logger.info(f"Running in HTTP/SSE transport mode on {host}:{port}")
-        
+
         # Check if running in gateway mode
         if os.getenv("INTERNAL_AUTH_TOKEN"):
             logger.info("🔒 Running in GATEWAY MODE - auth required from gateway")
         else:
             logger.info("⚠️ Running in DIRECT MODE - no gateway auth required")
-        
+
         # Create the SSE app
         import uvicorn
-        
-        # Create custom ASGI middleware for SSE compatibility
+
+        # ✅ FIXED: Context middleware with proper token management
         class CallerContextMiddleware:
             def __init__(self, app):
                 self.app = app
-            
+
             async def __call__(self, scope, receive, send):
                 if scope["type"] == "http":
                     # Extract headers from scope
@@ -95,35 +96,44 @@ def main():
                     email = headers.get(b"x-user-email", b"unknown").decode()
                     groups_str = headers.get(b"x-user-groups", b"").decode()
                     groups = groups_str.split(",") if groups_str else []
-                    
-                    # Set context variables
-                    caller_email_var.set(email)
-                    caller_groups_var.set(groups)
-                    
+
+                    # ✅ Set context variables with tokens
+                    token_email = caller_email_var.set(email)
+                    token_groups = caller_groups_var.set(groups)
+
                     logger.debug(f"Request from {email} with groups {groups}")
-                
-                # Pass through to the app
-                await self.app(scope, receive, send)
-        
+
+                    try:
+                        # ✅ FIXED: Complete async call
+                        await self.app(scope, receive, send)
+                    finally:
+                        # ✅ Reset context after request completes
+                        caller_email_var.reset(token_email)
+                        caller_groups_var.reset(token_groups)
+                else:
+                    # Non-HTTP requests (websocket, lifespan)
+                    await self.app(scope, receive, send)
+
         # Wrap the SSE app with our middleware
         starlette_app = mcp.sse_app()
         app_with_middleware = CallerContextMiddleware(starlette_app)
-        
+
         config = uvicorn.Config(
             app_with_middleware,
             host=host,
             port=port,
             log_level="info"
         )
-        
+
         server = uvicorn.Server(config)
         import asyncio
         asyncio.run(server.serve())
-    
+
     else:
         logger.info("MCP Server ready - OAuth mode enabled")
         logger.info("Running in stdio transport mode")
         mcp.run(transport="stdio")
+
 
 if __name__ == "__main__":
     main()
