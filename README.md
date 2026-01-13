@@ -20,7 +20,6 @@ EC2 Instance (AWS eu-west-3)
 │ └─ Promtail - Log collection
 └─ Auto-Update Layer
 └─ Watchtower - Auto-updates Docker images every 5 minutes
-```
 
 
 **Data Privacy:** All AI inference happens within AWS Bedrock in eu-west-3. Your prompts never leave AWS and are not used for model training.
