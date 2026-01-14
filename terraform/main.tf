@@ -31,7 +31,7 @@ resource "aws_instance" "okta_mcp" {
     delete_on_termination = true
   }
 
-  user_data = templatefile("${path.module}/user-data.sh", {
+  user_data_base64 = base64gzip(templatefile("${path.module}/user-data.sh", {
     aws_region                      = var.aws_region
     readonly_secret_id              = aws_secretsmanager_secret.okta_readonly_private_key.id
     admin_secret_id                 = aws_secretsmanager_secret.okta_admin_private_key.id
@@ -51,7 +51,7 @@ resource "aws_instance" "okta_mcp" {
     gateway_session_secret_id       = var.gateway_session_secret_id
     gateway_internal_auth_secret_id = var.gateway_internal_auth_secret_id
 
-  })
+  }))
 
   tags = {
     Name        = "okta-mcp-litellm--dev-server"

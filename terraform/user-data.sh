@@ -183,6 +183,193 @@ mkdir -p /opt/okta-litellm/{loki-data,loki-wal}
 chown -R 10001:10001 /opt/okta-litellm/{loki-data,loki-wal}
 chmod -R 755 /opt/okta-litellm/{loki-data,loki-wal}
 
+cat > custom_callbacks.py << 'EOF'
+# custom_callbacks.py
+from __future__ import annotations
+
+from typing import Any, Dict, List, Literal, Optional
+
+from litellm.integrations.custom_logger import CustomLogger
+from litellm.proxy.proxy_server import DualCache, UserAPIKeyAuth
+
+
+# Keep ONLY Okta MCP tools + Roo's completion controls
+ALLOWED_EXACT = {
+    "attempt_completion",       # REQUIRED to stop Roo loops
+    "ask_followup_question",    # optional, but safe
+}
+ALLOWED_PREFIXES = (
+    "mcp--okta",  # mcp--okta___admin--*, mcp--okta___readonly--*, etc.
+)
+
+
+def _extract_tool_name(tool: Any) -> str:
+    if not isinstance(tool, dict):
+        return ""
+    fn = tool.get("function") or {}
+    if isinstance(fn, dict):
+        name = fn.get("name") or ""
+        return name if isinstance(name, str) else ""
+    return ""
+
+
+def _is_allowed_tool(name: str) -> bool:
+    return (name in ALLOWED_EXACT) or name.startswith(ALLOWED_PREFIXES)
+
+
+def _filter_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    kept: List[Dict[str, Any]] = []
+    for t in tools:
+        name = _extract_tool_name(t)
+        if name and _is_allowed_tool(name):
+            kept.append(t)
+    return kept
+
+
+def _looks_like_post_tool_turn(messages: Any, lookback: int = 12) -> bool:
+    """
+    Roo often appends extra USER messages (environment_details / truncation)
+    AFTER a tool result. So the last message may be 'user', even though we're
+    immediately post-tool.
+
+    We scan backwards a bit; if we see a 'tool' message recently, we treat
+    this as the post-tool finalize turn.
+    """
+    if not isinstance(messages, list) or not messages:
+        return False
+
+    tail = messages[-lookback:] if len(messages) > lookback else messages
+
+    for m in reversed(tail):
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+
+        if role == "tool":
+            return True
+
+        # If we hit a new assistant message WITHOUT tool_calls,
+        # we're past the tool-return step.
+        if role == "assistant":
+            # If assistant has tool_calls, the tool return will follow,
+            # so keep scanning.
+            if m.get("tool_calls"):
+                continue
+            # Otherwise break - we're in a normal chat turn.
+            break
+
+    return False
+
+
+def _force_attempt_completion(data: dict, tool_container: str, optional_params: Optional[dict]) -> None:
+    """
+    Force the model to call attempt_completion by:
+      - restricting tools to attempt_completion (+ optional ask_followup_question)
+      - setting tool_choice to attempt_completion
+    """
+    tools = data.get("tools") if tool_container == "data.tools" else (optional_params or {}).get("tools")
+    if not isinstance(tools, list):
+        return
+
+    # Keep only attempt_completion (and optionally ask_followup_question)
+    forced_tools = []
+    for t in tools:
+        name = _extract_tool_name(t)
+        if name in ("attempt_completion", "ask_followup_question"):
+            forced_tools.append(t)
+
+    # If attempt_completion isn't present, nothing to force
+    if not any(_extract_tool_name(t) == "attempt_completion" for t in forced_tools):
+        return
+
+    # Apply tools
+    if tool_container == "data.tools":
+        data["tools"] = forced_tools
+    else:
+        optional_params["tools"] = forced_tools
+
+    # Force tool_choice (OpenAI-style)
+    forced_choice = {"type": "function", "function": {"name": "attempt_completion"}}
+    data["tool_choice"] = forced_choice
+    if optional_params is not None:
+        optional_params["tool_choice"] = forced_choice
+
+
+class McpOnlyToolsHandler(CustomLogger):
+    async def async_pre_call_hook(
+        self,
+        user_api_key_dict: UserAPIKeyAuth,
+        cache: DualCache,
+        data: dict,
+        call_type: Literal[
+            "completion",
+            "text_completion",
+            "embeddings",
+            "image_generation",
+            "moderation",
+            "audio_transcription",
+        ],
+    ):
+        # Tools may arrive in either `data["tools"]` or `data["optional_params"]["tools"]`
+        direct_tools = data.get("tools")
+        optional_params = data.get("optional_params") if isinstance(data.get("optional_params"), dict) else None
+        optional_tools = optional_params.get("tools") if optional_params else None
+
+        tool_container: Optional[str] = None
+        tools_to_filter: Optional[List[Dict[str, Any]]] = None
+
+        if isinstance(direct_tools, list):
+            tool_container = "data.tools"
+            tools_to_filter = direct_tools
+        elif isinstance(optional_tools, list):
+            tool_container = "data.optional_params.tools"
+            tools_to_filter = optional_tools
+
+        if not tools_to_filter:
+            return data
+
+        # Debug: incoming tool names
+        try:
+            incoming = [n for n in (_extract_tool_name(t) for t in tools_to_filter) if n]
+            print(f"[MCP FILTER] Incoming tools from {tool_container}: {incoming}")
+        except Exception:
+            pass
+
+        filtered = _filter_tools(tools_to_filter)
+
+        # Debug: kept tool names
+        try:
+            kept = [n for n in (_extract_tool_name(t) for t in filtered) if n]
+            print(f"[MCP FILTER] Kept tools: {kept}")
+        except Exception:
+            pass
+
+        # Put filtered tools back
+        if tool_container == "data.tools":
+            data["tools"] = filtered
+            if not filtered:
+                data.pop("tool_choice", None)
+        elif tool_container == "data.optional_params.tools" and optional_params is not None:
+            optional_params["tools"] = filtered
+            if not filtered:
+                optional_params.pop("tool_choice", None)
+
+        # ✅ Critical: if we're right after a tool result, force attempt_completion
+        if _looks_like_post_tool_turn(data.get("messages")):
+            _force_attempt_completion(data, tool_container, optional_params)
+            try:
+                print("[MCP FILTER] Post-tool turn detected -> forcing attempt_completion tool_choice")
+            except Exception:
+                pass
+
+        return data
+
+
+proxy_handler_instance = McpOnlyToolsHandler()
+
+
+
+EOF
 
 # Create docker-compose.yml
 cat > docker-compose.yml << 'COMPOSE'
@@ -264,13 +451,19 @@ services:
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro
       - ./litellm-data:/app/data
+      - ./custom_callbacks.py:/app/custom_callbacks.py:ro
+
     env_file:
       - .env
     environment:
       - PORT=4000
       - LITELLM_LOG=DEBUG
+      - PYTHONPATH=/app
+
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
     restart: unless-stopped
+    depends_on:
+      - redis
   
   loki:
     image: grafana/loki:2.9.0
@@ -343,23 +536,40 @@ services:
       retries: 3
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+  
+  redis:
+    image: redis:7-alpine
+    container_name: litellm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - logging
 
 COMPOSE
 
 # Create LiteLLM config
 cat > litellm-config.yaml << EOF
+proxy:
+  enable_cache: true
 model_list:
-  # Claude 4.5 Sonnet
+  # Claude 3-7 Sonnet
   - model_name: bedrock-sonnet
     litellm_params:
-      model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+      model: bedrock/eu.anthropic.claude-3-7-sonnet-20250219-v1:0
       aws_region_name: ${aws_region}
+      api_key: null
+      max_tokens: 400
 
   # Claude 4.5 Haiku (fast, cheap)
   - model_name: bedrock-haiku
     litellm_params:
       model: bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0
       aws_region_name: ${aws_region}
+      max_tokens: 4000
 
   # Llama 3.1 70B (open source)
   - model_name: bedrock-llama
@@ -378,9 +588,19 @@ model_list:
 litellm_settings:
   master_key: \$LITELLM_MASTER_KEY
   drop_params: true
+  modify_params: true
   success_callback: ["stdout"]
   failure_callback: ["stdout"]
   set_verbose: true
+  callbacks: custom_callbacks.proxy_handler_instance
+
+
+  cache: true
+  cache_params:
+    type: "redis"
+    host: "localhost"
+    port: 6379
+    ttl: 3600  # 1 hour cache    
 
 teams:
   - team_id: okta_admins
@@ -499,7 +719,6 @@ scrape_configs:
         target_label: container_id
         action: replace
 EOF_PROMTAIL
-
 
 
 

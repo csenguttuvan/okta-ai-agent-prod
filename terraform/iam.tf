@@ -59,3 +59,41 @@ resource "aws_iam_role_policy" "okta_mcp_bedrock" {
     ]
   })
 }
+
+
+# Allow EC2 to access S3 bucket for LiteLLM cache
+resource "aws_iam_role_policy" "s3_cache_access" {
+  name = "litellm-s3-cache-access"
+  role = aws_iam_role.mcp.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = [
+          "arn:aws:s3:::corpit-terraform-tfstate-paris/litellm-cache/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::corpit-terraform-tfstate-paris"
+        ]
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["litellm-cache/*"]
+          }
+        }
+      }
+    ]
+  })
+}
