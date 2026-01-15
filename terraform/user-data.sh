@@ -186,113 +186,126 @@ chmod -R 755 /opt/okta-litellm/{loki-data,loki-wal}
 cat > custom_callbacks.py << 'EOF'
 # custom_callbacks.py
 from __future__ import annotations
-
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Set
 
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy.proxy_server import DualCache, UserAPIKeyAuth
 
 
-# Keep ONLY Okta MCP tools + Roo's completion controls
-ALLOWED_EXACT = {
-    "attempt_completion",       # REQUIRED to stop Roo loops
-    "ask_followup_question",    # optional, but safe
-}
-ALLOWED_PREFIXES = (
-    "mcp--okta",  # mcp--okta___admin--*, mcp--okta___readonly--*, etc.
-)
-
-
 def _extract_tool_name(tool: Any) -> str:
+    """Extract tool name from tool definition"""
     if not isinstance(tool, dict):
         return ""
     fn = tool.get("function") or {}
     if isinstance(fn, dict):
-        name = fn.get("name") or ""
-        return name if isinstance(name, str) else ""
+        n = fn.get("name")
+        return n if isinstance(n, str) else ""
     return ""
 
 
-def _is_allowed_tool(name: str) -> bool:
-    return (name in ALLOWED_EXACT) or name.startswith(ALLOWED_PREFIXES)
+def _is_okta_mcp(name: str) -> bool:
+    """Check if tool is an Okta MCP tool"""
+    return name.startswith("mcp--okta")
 
 
-def _filter_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    kept: List[Dict[str, Any]] = []
-    for t in tools:
-        name = _extract_tool_name(t)
-        if name and _is_allowed_tool(name):
-            kept.append(t)
-    return kept
+def _get_relevant_categories(user_message: str) -> Set[str]:
+    """Determine which tool categories are needed based on user query"""
+    msg = user_message.lower()
+    categories = set()
+    
+    # User-related queries
+    if any(w in msg for w in ["user", "person", "people", "profile", "login", "email", "activate", "deactivate", "create user", "delete user", "division", "department", "attribute"]):
+        categories.add("user")
+    
+    # Group-related queries
+    if any(w in msg for w in ["group", "groups", "team", "teams", "member", "members"]):
+        categories.add("group")
+    
+    # Application-related queries
+    if any(w in msg for w in ["app", "application", "applications", "saml", "oidc", "sso", "assign", "list application", "find application", "get application"]):
+        categories.add("app")
+    
+    # Policy-related queries
+    if any(w in msg for w in ["policy", "policies", "rule", "mfa", "password", "sign", "signon"]):
+        categories.add("policy")
+    
+    # Log-related queries
+    if any(w in msg for w in ["log", "logs", "audit", "event", "activity"]):
+        categories.add("log")
+    
+    # Safety: if no categories matched, return common ones
+    if not categories:
+        print(f"[MCP FILTER WARNING] No categories matched for: {msg[:100]}")
+        categories = {"user", "group", "app"}
+    
+    return categories
 
 
-def _looks_like_post_tool_turn(messages: Any, lookback: int = 12) -> bool:
-    """
-    Roo often appends extra USER messages (environment_details / truncation)
-    AFTER a tool result. So the last message may be 'user', even though we're
-    immediately post-tool.
-
-    We scan backwards a bit; if we see a 'tool' message recently, we treat
-    this as the post-tool finalize turn.
-    """
-    if not isinstance(messages, list) or not messages:
-        return False
-
-    tail = messages[-lookback:] if len(messages) > lookback else messages
-
-    for m in reversed(tail):
-        if not isinstance(m, dict):
-            continue
-        role = m.get("role")
-
-        if role == "tool":
+def _tool_matches_category(tool_name: str, categories: Set[str]) -> bool:
+    """Check if tool belongs to needed categories"""
+    name_lower = tool_name.lower()
+    
+    # Always include check_permissions (lightweight and useful)
+    if "checkpermissions" in name_lower:
+        return True
+    
+    # User tools
+    if "user" in categories:
+        if "user" in name_lower:
             return True
-
-        # If we hit a new assistant message WITHOUT tool_calls,
-        # we're past the tool-return step.
-        if role == "assistant":
-            # If assistant has tool_calls, the tool return will follow,
-            # so keep scanning.
-            if m.get("tool_calls"):
-                continue
-            # Otherwise break - we're in a normal chat turn.
-            break
-
+    
+    # Group tools
+    if "group" in categories:
+        if "group" in name_lower:
+            return True
+    
+    # Application tools
+    if "app" in categories:
+        if "app" in name_lower:
+            return True
+    
+    # Policy tools
+    if "policy" in categories:
+        if "polic" in name_lower or "rule" in name_lower:
+            return True
+    
+    # Log tools
+    if "log" in categories:
+        if "log" in name_lower:
+            return True
+    
     return False
 
 
-def _force_attempt_completion(data: dict, tool_container: str, optional_params: Optional[dict]) -> None:
-    """
-    Force the model to call attempt_completion by:
-      - restricting tools to attempt_completion (+ optional ask_followup_question)
-      - setting tool_choice to attempt_completion
-    """
-    tools = data.get("tools") if tool_container == "data.tools" else (optional_params or {}).get("tools")
-    if not isinstance(tools, list):
-        return
+def _slim_tool(t: Dict[str, Any]) -> Dict[str, Any]:
+    """Minimal but usable: name + required params with descriptions"""
+    fn = t.get("function", {})
+    params = fn.get("parameters", {})
+    props = params.get("properties", {})
+    required = params.get("required", [])
+    
+    # Include ALL required properties with FULL type and description
+    minimal_props = {}
+    for key in required:
+        if key in props:
+            minimal_props[key] = {
+                "type": props[key].get("type", "string"),
+                "description": props[key].get("description", "")  # ← Keep FULL description
+            }
+    
+    return {
+        "type": "function",
+        "function": {
+            "name": fn.get("name", ""),
+            "description": fn.get("description", ""),  # ← Keep FULL function description
+            "parameters": {
+                "type": "object",
+                "properties": minimal_props,
+                "required": required
+            }
+        }
+    }
 
-    # Keep only attempt_completion (and optionally ask_followup_question)
-    forced_tools = []
-    for t in tools:
-        name = _extract_tool_name(t)
-        if name in ("attempt_completion", "ask_followup_question"):
-            forced_tools.append(t)
-
-    # If attempt_completion isn't present, nothing to force
-    if not any(_extract_tool_name(t) == "attempt_completion" for t in forced_tools):
-        return
-
-    # Apply tools
-    if tool_container == "data.tools":
-        data["tools"] = forced_tools
-    else:
-        optional_params["tools"] = forced_tools
-
-    # Force tool_choice (OpenAI-style)
-    forced_choice = {"type": "function", "function": {"name": "attempt_completion"}}
-    data["tool_choice"] = forced_choice
-    if optional_params is not None:
-        optional_params["tool_choice"] = forced_choice
 
 
 class McpOnlyToolsHandler(CustomLogger):
@@ -302,72 +315,115 @@ class McpOnlyToolsHandler(CustomLogger):
         cache: DualCache,
         data: dict,
         call_type: Literal[
-            "completion",
-            "text_completion",
-            "embeddings",
-            "image_generation",
-            "moderation",
-            "audio_transcription",
+            "completion", "text_completion", "embeddings",
+            "image_generation", "moderation", "audio_transcription",
         ],
     ):
-        # Tools may arrive in either `data["tools"]` or `data["optional_params"]["tools"]`
-        direct_tools = data.get("tools")
-        optional_params = data.get("optional_params") if isinstance(data.get("optional_params"), dict) else None
-        optional_tools = optional_params.get("tools") if optional_params else None
+        try:
+            # Extract user message to determine context
+            messages = data.get("messages", [])
+            user_msg = ""
+            all_messages = []  # Track all recent messages
+            
+            # Get last 3 user messages for better context
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    content = msg.get("content", "")
+                    if isinstance(content, str):
+                        all_messages.append(content)
+                    elif isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text = block.get("text", "")
+                                if "<task>" in text:
+                                    import re
+                                    match = re.search(r'<task>(.*?)</task>', text, re.DOTALL)
+                                    if match:
+                                        all_messages.append(match.group(1).strip())
+                                else:
+                                    all_messages.append(text)
+                    
+                    if len(all_messages) >= 3:  # Check last 3 user messages
+                        break
+            
+            # Use the most recent message for primary context
+            user_msg = all_messages[0] if all_messages else ""
+            
+            # Get relevant categories from current message
+            relevant_categories = _get_relevant_categories(user_msg)
+            
+            # If this is a follow-up (multiple messages), check ALL recent messages
+            if len(all_messages) > 1:
+                for old_msg in all_messages[1:]:
+                    old_categories = _get_relevant_categories(old_msg)
+                    relevant_categories.update(old_categories)  # Merge categories
+                print(f"[MCP FILTER] Multi-turn conversation - expanded categories: {relevant_categories}")
+            
+            # Extract tools from request
+            direct_tools = data.get("tools")
+            optional_params = data.get("optional_params") if isinstance(data.get("optional_params"), dict) else None
+            optional_tools = optional_params.get("tools") if optional_params else None
 
-        tool_container: Optional[str] = None
-        tools_to_filter: Optional[List[Dict[str, Any]]] = None
+            container: Optional[str] = None
+            tools: Optional[List[Dict[str, Any]]] = None
 
-        if isinstance(direct_tools, list):
-            tool_container = "data.tools"
-            tools_to_filter = direct_tools
-        elif isinstance(optional_tools, list):
-            tool_container = "data.optional_params.tools"
-            tools_to_filter = optional_tools
+            if isinstance(direct_tools, list):
+                container = "data.tools"
+                tools = direct_tools
+            elif isinstance(optional_tools, list):
+                container = "data.optional_params.tools"
+                tools = optional_tools
 
-        if not tools_to_filter:
+            if not tools:
+                return data
+
+            # Filter: 1) Keep Roo tools, 2) Keep relevant Okta MCP tools, 3) Slim schema
+            kept = []
+            for t in tools:
+                name = _extract_tool_name(t)
+                
+                # Always keep non-Okta tools (Roo's built-in tools like attempt_completion)
+                if not _is_okta_mcp(name):
+                    kept.append(t)  # Keep as-is, don't slim
+                    continue
+                
+                # For Okta MCP tools, filter by category and slim
+                if _tool_matches_category(name, relevant_categories):
+                    kept.append(_slim_tool(t))
+
+            # SAFETY: If we filtered ALL Okta tools but have some, keep all Okta tools as fallback
+            okta_tool_count = sum(1 for t in kept if _is_okta_mcp(_extract_tool_name(t)))
+            if okta_tool_count == 0 and len(tools) > 0:
+                print(f"[MCP FILTER WARNING] Kept 0 Okta tools - keeping all Okta tools as fallback")
+                for t in tools:
+                    name = _extract_tool_name(t)
+                    if name and _is_okta_mcp(name):
+                        kept.append(_slim_tool(t))
+
+            # Debug log
+            print(f"[MCP FILTER] Query categories: {relevant_categories}")
+            print(f"[MCP FILTER] Incoming: {len(tools)} | Kept: {len(kept)} | container={container}")
+
+            # Update the request with filtered tools
+            if container == "data.tools":
+                data["tools"] = kept
+                if not kept:
+                    data.pop("tool_choice", None)
+            else:
+                optional_params["tools"] = kept
+                if not kept:
+                    optional_params.pop("tool_choice", None)
+
             return data
-
-        # Debug: incoming tool names
-        try:
-            incoming = [n for n in (_extract_tool_name(t) for t in tools_to_filter) if n]
-            print(f"[MCP FILTER] Incoming tools from {tool_container}: {incoming}")
-        except Exception:
-            pass
-
-        filtered = _filter_tools(tools_to_filter)
-
-        # Debug: kept tool names
-        try:
-            kept = [n for n in (_extract_tool_name(t) for t in filtered) if n]
-            print(f"[MCP FILTER] Kept tools: {kept}")
-        except Exception:
-            pass
-
-        # Put filtered tools back
-        if tool_container == "data.tools":
-            data["tools"] = filtered
-            if not filtered:
-                data.pop("tool_choice", None)
-        elif tool_container == "data.optional_params.tools" and optional_params is not None:
-            optional_params["tools"] = filtered
-            if not filtered:
-                optional_params.pop("tool_choice", None)
-
-        # ✅ Critical: if we're right after a tool result, force attempt_completion
-        if _looks_like_post_tool_turn(data.get("messages")):
-            _force_attempt_completion(data, tool_container, optional_params)
-            try:
-                print("[MCP FILTER] Post-tool turn detected -> forcing attempt_completion tool_choice")
-            except Exception:
-                pass
-
-        return data
+        
+        except Exception as e:
+            print(f"[MCP FILTER ERROR] {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return data
 
 
 proxy_handler_instance = McpOnlyToolsHandler()
-
-
 
 EOF
 
@@ -556,13 +612,14 @@ cat > litellm-config.yaml << EOF
 proxy:
   enable_cache: true
 model_list:
-  # Claude 3-7 Sonnet
+  # Claude 4.5 Sonnet
   - model_name: bedrock-sonnet
     litellm_params:
-      model: bedrock/eu.anthropic.claude-3-7-sonnet-20250219-v1:0
+      model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
       aws_region_name: ${aws_region}
       api_key: null
-      max_tokens: 400
+      max_tokens: 1200
+      
 
   # Claude 4.5 Haiku (fast, cheap)
   - model_name: bedrock-haiku

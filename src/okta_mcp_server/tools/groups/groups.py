@@ -9,9 +9,9 @@ from okta_mcp_server.oauth_jwt_client import get_client
 
 
 @mcp.tool()
-def list_groups(
-    query: Optional[str] = None,
+def list_groups( 
     limit: int = 100,  # ✅ Fixed: Always int
+    query: Optional[str] = None,
     ctx: Context | None = None
 ) -> dict:
     """List Okta groups (requires groups.read scope)."""

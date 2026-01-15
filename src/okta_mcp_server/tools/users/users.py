@@ -41,9 +41,9 @@ def _normalize_user(u: dict) -> dict:
 # ---------------------------
 
 @mcp.tool()
-def list_users(
-    query: Optional[str] = None,
+def list_users(   
     limit: int = 100,
+    query: Optional[str] = None,
     ctx: Context | None = None
 ) -> dict:
     """List Okta users (requires users.read scope)."""

@@ -8,17 +8,17 @@ from okta_mcp_server.context import get_caller_email, get_caller_groups
 
 @mcp.tool()
 def get_logs(
+    limit: int = 100,
     ctx: Context | None = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
     filter: Optional[str] = None,
     query: Optional[str] = None,
-    limit: int = 100
 ) -> dict:
     """Retrieve system logs from Okta (requires logs.read scope)."""
     caller = get_caller_email()
 
-    logger.info(f"[caller={caller}] Retrieving system logs since={since}, until={until}, limit={limit}")
+    logger.info(f"[caller={caller}] Retrieving system logs limit={limit}, since={since}, until={until}")
 
     params = {"limit": limit}
     if since:
@@ -29,6 +29,7 @@ def get_logs(
         params["filter"] = filter
     if query:
         params["q"] = query
+
 
     try:
         logs = get_client().get("/api/v1/logs", params=params)

@@ -24,9 +24,9 @@ def get_caller_email(ctx: Context | None) -> str:
 def list_policies(
     ctx: Context | None = None,
     type: str = "",
+    limit: Optional[int] = 20,
     status: Optional[str] = None,
     q: Optional[str] = None,
-    limit: Optional[int] = 20,
     after: Optional[str] = None
 ) -> Dict[str, Any]:
     """List all the policies from the Okta organization.
