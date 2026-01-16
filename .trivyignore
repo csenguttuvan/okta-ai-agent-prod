@@ -1,0 +1,5 @@
+# .trivyignore
+# Suppress glibc CVE-2026-0861 - no fix available in Debian base images yet
+# Tracked: https://security-tracker.debian.org/tracker/CVE-2026-0861
+# TODO: Monitor for Debian security update and remove suppression when patched
+CVE-2026-0861

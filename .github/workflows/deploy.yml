@@ -61,6 +61,7 @@ jobs:
           image-ref: 'blackstaa/okta-mcp-server:scan'
           format: 'table'
           severity: 'CRITICAL'
+          trivyignores: '.trivyignore'
           exit-code: '1'
       
       - name: Build and push MCP server to Docker Hub
