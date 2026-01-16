@@ -167,7 +167,7 @@ def main():
                     # Non-HTTP requests (websocket, lifespan)
                     await self.app(scope, receive, send)
 
-        # Wrap the SSE app with our middleware
+        
         starlette_app = mcp.sse_app()
         app_with_middleware = CallerContextMiddleware(starlette_app)
 
