@@ -182,20 +182,21 @@ async def get_current_user(request: Request):
 async def mcp_sse_endpoint(request: Request, current_user: dict = Depends(get_current_user)):
     email = current_user["email"]
     mcp_url = get_mcp_url()
-    
-    # ✅ Add /sse to the base URL
     mcp_sse_url = f"{mcp_url}/sse"
-    
     logger.info(f"[{email}] SSE connection -> {mcp_sse_url}")
     
     async def stream_from_mcp():
         headers = {
             "Authorization": f"Bearer {os.getenv('INTERNAL_AUTH_TOKEN')}",
             "Accept": "text/event-stream",
+            # ✅ ADD THESE:
+            "X-User-Email": current_user['email'],
+            "X-User-ID": current_user['sub'],
+            "X-User-Groups": ",".join(current_user.get('groups', [])),
         }
         
         async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("GET", mcp_sse_url, headers=headers) as response:  # ✅ Use mcp_sse_url
+            async with client.stream("GET", mcp_sse_url, headers=headers) as response:
                 response.raise_for_status()
                 async for chunk in response.aiter_bytes():
                     yield chunk

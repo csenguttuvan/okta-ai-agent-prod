@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-
 # Load .env file automatically
 try:
     from dotenv import load_dotenv
@@ -11,8 +10,10 @@ try:
 except ImportError:
     print("⚠️ python-dotenv not installed")
 
+
 import sys
 from loguru import logger
+
 
 # Configure logging
 logger.remove()
@@ -22,6 +23,7 @@ logger.add(
     level=os.getenv("OKTA_LOG_LEVEL", "INFO")
 )
 
+
 # Import context variables and helpers from separate module
 from okta_mcp_server.context import (
     caller_email_var,
@@ -30,32 +32,68 @@ from okta_mcp_server.context import (
     get_caller_groups
 )
 
-# Import the shared mcp instance
-logger.info("Step 1: Importing mcp_instance...")
-from okta_mcp_server.mcp_instance import mcp
-logger.info(f"Step 1 complete: mcp = {mcp}")
 
-# Initialize OAuth client at MODULE LEVEL (before tool imports)
+# ✅ CRITICAL: Import mcp instance
+from okta_mcp_server.mcp_instance import mcp
+
+
+# ✅ CRITICAL: Initialize OAuth client BEFORE importing tools
 logger.info("Step 2: Initializing OAuth client...")
 from okta_mcp_server.oauth_jwt_client import init_okta_client
-init_okta_client()
-logger.info("Step 2 complete: OAuth initialized")
+try:
+    init_okta_client()
+    logger.info("✅ OAuth client initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize OAuth client: {e}")
+    raise
+
 
 # Import ALL tools at MODULE LEVEL - this registers them with mcp
 logger.info("Step 3: Importing tools...")
-logger.info("  Importing users...")
-from okta_mcp_server.tools import users
-logger.info("  Importing groups...")
-from okta_mcp_server.tools import groups
-logger.info("  Importing applications...")
-from okta_mcp_server.tools import applications
+
+
+# Always import read-only tools
+logger.info("  Importing users (read-only)...")
+from okta_mcp_server.tools.users import users
+logger.info("  Importing groups (read-only)...")
+from okta_mcp_server.tools.groups import groups
+logger.info("  Importing applications (read-only)...")
+from okta_mcp_server.tools.applications import applications
+logger.info("  Importing policies (read-only)...")
+from okta_mcp_server.tools.policies import policies
 logger.info("  Importing system_logs...")
-from okta_mcp_server.tools import system_logs
-logger.info("  Importing policies...")
-from okta_mcp_server.tools import policies
-logger.info("  Importing admin user privileges...")
-from okta_mcp_server.tools.users import users_admin
-logger.info("Step 3 complete: All tools imported")
+from okta_mcp_server.tools.system_logs import system_logs
+
+
+# Check OAuth scopes to determine access level
+okta_scopes = os.getenv("OKTA_SCOPES", "")
+logger.info(f"  Detected scopes: {okta_scopes}")
+
+
+has_manage_scope = (
+    "okta.users.manage" in okta_scopes or 
+    "okta.groups.manage" in okta_scopes or 
+    "okta.apps.manage" in okta_scopes
+)
+
+
+if has_manage_scope:
+    logger.info("  🔓 ADMIN MODE: Importing admin tools...")
+    logger.info("  Importing users_admin...")
+    from okta_mcp_server.tools.users import users_admin
+    logger.info("  Importing groups_admin...")
+    from okta_mcp_server.tools.groups import groups_admin
+    logger.info("  Importing applications_admin...")
+    from okta_mcp_server.tools.applications import applications_admin
+    logger.info("  Importing policies_admin...")
+    from okta_mcp_server.tools.policies import policies_admin
+    logger.info(f"  ✅ Registered ~44 tools (ADMIN mode)")
+else:
+    logger.info("  🔒 READ-ONLY MODE: Skipping admin tools...")
+    logger.info(f"  ✅ Registered ~20 tools (READ-ONLY mode)")
+
+
+logger.info("Step 3 complete: Tools imported based on OAuth scopes")
 
 
 def main():
@@ -84,24 +122,39 @@ def main():
         # Create the SSE app
         import uvicorn
 
-        # ✅ FIXED: Context middleware with proper token management
+        # ✅ FIXED: Context middleware with proper header extraction
         class CallerContextMiddleware:
             def __init__(self, app):
                 self.app = app
 
             async def __call__(self, scope, receive, send):
                 if scope["type"] == "http":
-                    # Extract headers from scope
-                    headers = dict(scope.get("headers", []))
-                    email = headers.get(b"x-user-email", b"unknown").decode()
-                    groups_str = headers.get(b"x-user-groups", b"").decode()
-                    groups = groups_str.split(",") if groups_str else []
+                    # Extract headers from scope - properly convert list of tuples to dict
+                    headers_raw = scope.get("headers", [])
+                    headers = {
+                        key.decode('latin1').lower(): value.decode('latin1')
+                        for key, value in headers_raw
+                    }
+                    
+                    # Debug: Log what headers we received
+                    logger.debug(f"🔍 Received headers: {list(headers.keys())}")
+                    
+                    # Get user email from possible header names
+                    email = (
+                        headers.get("x-user-email") or 
+                        headers.get("x-forwarded-user") or
+                        "unknown"
+                    )
+                    
+                    # Get user groups
+                    groups_str = headers.get("x-user-groups", "")
+                    groups = [g.strip() for g in groups_str.split(",") if g.strip()]
+
+                    logger.info(f"📥 Incoming request: email={email}, groups={groups}")
 
                     # ✅ Set context variables with tokens
                     token_email = caller_email_var.set(email)
                     token_groups = caller_groups_var.set(groups)
-
-                    logger.debug(f"Request from {email} with groups {groups}")
 
                     try:
                         # ✅ FIXED: Complete async call

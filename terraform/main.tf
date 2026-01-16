@@ -80,7 +80,7 @@ data "aws_ami" "amazon_linux_2023" {
 data "aws_ebs_volume" "grafana_data" {
   filter {
     name   = "volume-id"
-    values = ["vol-006e61b5ad4941092"]  # ✅ Your actual volume ID
+    values = ["vol-006e61b5ad4941092"] # ✅ Your actual volume ID
   }
 }
 
@@ -88,10 +88,10 @@ data "aws_ebs_volume" "grafana_data" {
 # Attach existing volume to instance
 resource "aws_volume_attachment" "grafana_data" {
   device_name = "/dev/xvdf"
-  volume_id   = data.aws_ebs_volume.grafana_data.id  # ✅ References data source
+  volume_id   = data.aws_ebs_volume.grafana_data.id # ✅ References data source
   instance_id = aws_instance.okta_mcp.id
-  
-  skip_destroy = true  # ✅ Prevent detachment on terraform destroy
-  
+
+  skip_destroy = true # ✅ Prevent detachment on terraform destroy
+
   depends_on = [aws_instance.okta_mcp]
 }

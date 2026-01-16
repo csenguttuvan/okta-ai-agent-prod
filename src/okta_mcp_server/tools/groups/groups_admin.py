@@ -168,3 +168,150 @@ def list_group_users(
     except Exception as e:
         logger.error(f"[caller={caller}] Error listing group users: {str(e)}")
         raise
+
+
+@mcp.tool()
+def create_group(
+    name: str,
+    description: Optional[str] = None,
+    ctx: Context | None = None
+) -> dict:
+    """Create a new Okta group (requires okta.groups.manage scope)."""
+    caller = get_caller_email()
+
+    if description in ("null", None):
+        description = None
+
+    logger.info(f"[caller={caller}] Creating group: {name}")
+
+    client = get_client()
+    profile = {"name": name}
+    if description:
+        profile["description"] = description
+
+    try:
+        group = client.post("/api/v1/groups", data={"profile": profile})
+        logger.info(f"[caller={caller}] Created group: {group.get('id')}")
+        return group
+
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] Error creating group: {str(e)}")
+        raise
+
+
+@mcp.tool()
+def delete_group(group_id: str, ctx: Context | None = None) -> dict:
+    """Delete an Okta group (requires okta.groups.manage scope)."""
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Deleting group: {group_id}")
+
+    client = get_client()
+    try:
+        client.delete(f"/api/v1/groups/{group_id}")
+        logger.info(f"[caller={caller}] Deleted group: {group_id}")
+        return {"message": f"Group {group_id} deleted successfully"}
+
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] Error deleting group: {str(e)}")
+        raise
+
+
+@mcp.tool()
+def add_user_to_group(
+    group_id: str,
+    user_id: str,
+    ctx: Context | None = None
+) -> dict:
+    """Add a user to a group (requires okta.groups.manage scope)."""
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Adding user {user_id} to group {group_id}")
+
+    client = get_client()
+    try:
+        client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
+        logger.info(f"[caller={caller}] Added user {user_id} to group {group_id}")
+        logger.info(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=success")
+        return {"message": "User added to group successfully"}
+
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        logger.error(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] Error adding user to group: {str(e)}")
+        logger.error(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
+        raise
+
+
+@mcp.tool()
+def remove_user_from_group(
+    group_id: str,
+    user_id: str,
+    ctx: Context | None = None
+) -> dict:
+    """Remove a user from a group (requires okta.groups.manage scope)."""
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Removing user {user_id} from group {group_id}")
+
+    client = get_client()
+    try:
+        client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
+        logger.info(f"[caller={caller}] Removed user {user_id} from group {group_id}")
+        return {"message": "User removed from group successfully"}
+
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] Error removing user from group: {str(e)}")
+        raise
+
+
+@mcp.tool()
+def remove_users_from_group(
+    group_id: str,
+    user_ids: List[str],
+    ctx: Context | None = None
+) -> dict:
+    """Remove multiple users from a group in a single operation.
+
+    Args:
+        group_id: The Okta group ID
+        user_ids: List of Okta user IDs to remove from the group
+
+    Returns:
+        Dictionary with removed count and results
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Batch removing {len(user_ids)} users from group {group_id}")
+
+    client = get_client()
+    results = []
+    failed = []
+
+    for user_id in user_ids:
+        try:
+            client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
+            results.append({"user_id": user_id, "status": "removed"})
+            logger.info(f"[caller={caller}] Removed user {user_id} from group {group_id}")
+            logger.info(f"tool=remove_users_from_group group_id={group_id} user_id={user_id} result=success")
+
+        except Exception as e:
+            failed.append({"user_id": user_id, "error": str(e)})
+            logger.error(f"[caller={caller}] Failed to remove user {user_id}: {str(e)}")
+            logger.error(f"tool=remove_users_from_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
+
+    return {
+        "success": True,
+        "total": len(user_ids),
+        "removed": len(results),
+        "failed": len(failed),
+        "results": results,
+        "failures": failed if failed else None
+    }

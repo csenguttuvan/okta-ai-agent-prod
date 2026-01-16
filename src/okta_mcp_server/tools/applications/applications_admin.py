@@ -160,3 +160,77 @@ def list_application_groups(
     except Exception as e:
         logger.error(f"[caller={caller}] Error listing application groups: {str(e)}")
         raise
+
+@mcp.tool()
+def assign_user_to_application(
+    ctx: Context | None = None,
+    app_id: str = "",
+    user_id: str = ""
+) -> Dict[str, Any]:
+    """Assign a user to an application.
+
+    Args:
+        app_id: The Okta application ID
+        user_id: The Okta user ID
+
+    Returns:
+        Dict with assignment details
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Assigning user {user_id} to application {app_id}")
+
+    if not app_id or not user_id:
+        logger.error(f"[caller={caller}] app_id and user_id are required")
+        raise ValueError("app_id and user_id are required")
+
+    try:
+        client = get_client()
+        assignment = client.post(
+            f"/api/v1/apps/{app_id}/users",
+            data={"id": user_id}
+        )
+        logger.info(f"[caller={caller}] Assigned user {user_id} to application {app_id}")
+        return assignment
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] Error assigning user to application: {str(e)}")
+        raise
+
+@mcp.tool()
+def assign_group_to_application(
+    ctx: Context | None = None,
+    app_id: str = "",
+    group_id: str = ""
+) -> Dict[str, Any]:
+    """Assign a group to an application.
+
+    Args:
+        app_id: The Okta application ID
+        group_id: The Okta group ID
+
+    Returns:
+        Dict with assignment details
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Assigning group {group_id} to application {app_id}")
+
+    if not app_id or not group_id:
+        logger.error(f"[caller={caller}] app_id and group_id are required")
+        raise ValueError("app_id and group_id are required")
+
+    try:
+        client = get_client()
+        assignment = client.put(
+            f"/api/v1/apps/{app_id}/groups/{group_id}",
+            data={}
+        )
+        logger.info(f"[caller={caller}] Assigned group {group_id} to application {app_id}")
+        return assignment
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] Error assigning group to application: {str(e)}")
+        raise

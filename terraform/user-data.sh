@@ -452,6 +452,7 @@ services:
       - MCP_PORT=8080
       - MCP_HOST=0.0.0.0
       - MCP_SERVER_NAME=okta-admin
+      - ACCESS_LEVEL=admin
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:8080/sse | head -c 1 > /dev/null"]
@@ -478,6 +479,7 @@ services:
       - MCP_PORT=8081
       - MCP_HOST=0.0.0.0
       - MCP_SERVER_NAME=okta-readonly
+      - ACCESS_LEVEL=readonly
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:8081/sse | head -c 1 > /dev/null"]
@@ -609,16 +611,14 @@ COMPOSE
 
 # Create LiteLLM config
 cat > litellm-config.yaml << EOF
-proxy:
-  enable_cache: true
 model_list:
   # Claude 4.5 Sonnet
   - model_name: bedrock-sonnet
     litellm_params:
       model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
       aws_region_name: ${aws_region}
-      api_key: null
       max_tokens: 1200
+      
       
 
   # Claude 4.5 Haiku (fast, cheap)
@@ -627,6 +627,7 @@ model_list:
       model: bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0
       aws_region_name: ${aws_region}
       max_tokens: 4000
+      
 
   # Llama 3.1 70B (open source)
   - model_name: bedrock-llama
@@ -634,6 +635,7 @@ model_list:
       model: bedrock/eu.meta.llama3-1-3b-instruct-v1:0
       aws_region_name: ${aws_region}
       max_tokens: 4000
+      
   
   # Mistral Large
   - model_name: bedrock-mistral
@@ -641,7 +643,7 @@ model_list:
       model: bedrock/eu.mistral.mistral-large-2402-v1:0
       aws_region_name: ${aws_region}
       max_tokens: 8000
-
+      
 litellm_settings:
   master_key: \$LITELLM_MASTER_KEY
   drop_params: true
@@ -650,8 +652,6 @@ litellm_settings:
   failure_callback: ["stdout"]
   set_verbose: true
   callbacks: custom_callbacks.proxy_handler_instance
-
-
   cache: true
   cache_params:
     type: "redis"

@@ -183,7 +183,101 @@ def update_policy(
         logger.error(f"[caller={caller}] Exception updating policy: {e}")
         return {"error": str(e)}
 
+@mcp.tool()
+def delete_policy(
+    ctx: Context | None = None,
+    policy_id: str = ""
+) -> Dict[str, Any]:
+    """Delete a policy.
 
+    Parameters:
+        policy_id (str, required): The ID of the policy to delete.
+
+    Returns:
+        Dict with success status.
+    """
+    caller = get_caller_email(ctx)
+    logger.info(f"[caller={caller}] Deleting policy: {policy_id}")
+
+    if not policy_id:
+        logger.error(f"[caller={caller}] policy_id is required")
+        return {"error": "policy_id is required"}
+
+    try:
+        client = get_client()
+        client.delete(f"/api/v1/policies/{policy_id}")
+        logger.info(f"[caller={caller}] Deleted policy: {policy_id}")
+        return {
+            "success": True,
+            "message": f"Policy {policy_id} deleted successfully"
+        }
+    except Exception as e:
+        logger.error(f"[caller={caller}] Exception deleting policy: {e}")
+        return {"error": str(e)}
+
+@mcp.tool()
+def activate_policy(
+    ctx: Context | None = None,
+    policy_id: str = ""
+) -> Dict[str, Any]:
+    """Activate a policy.
+
+    Parameters:
+        policy_id (str, required): The ID of the policy to activate.
+
+    Returns:
+        Dict with success status.
+    """
+    caller = get_caller_email(ctx)
+    logger.info(f"[caller={caller}] Activating policy: {policy_id}")
+
+    if not policy_id:
+        logger.error(f"[caller={caller}] policy_id is required")
+        return {"error": "policy_id is required"}
+
+    try:
+        client = get_client()
+        client.post(f"/api/v1/policies/{policy_id}/lifecycle/activate")
+        logger.info(f"[caller={caller}] Activated policy: {policy_id}")
+        return {
+            "success": True,
+            "message": f"Policy {policy_id} activated successfully"
+        }
+    except Exception as e:
+        logger.error(f"[caller={caller}] Exception activating policy: {e}")
+        return {"error": str(e)}
+
+@mcp.tool()
+def deactivate_policy(
+    ctx: Context | None = None,
+    policy_id: str = ""
+) -> Dict[str, Any]:
+    """Deactivate a policy.
+
+    Parameters:
+        policy_id (str, required): The ID of the policy to deactivate.
+
+    Returns:
+        Dict with success status.
+    """
+    caller = get_caller_email(ctx)
+    logger.info(f"[caller={caller}] Deactivating policy: {policy_id}")
+
+    if not policy_id:
+        logger.error(f"[caller={caller}] policy_id is required")
+        return {"error": "policy_id is required"}
+
+    try:
+        client = get_client()
+        client.post(f"/api/v1/policies/{policy_id}/lifecycle/deactivate")
+        logger.info(f"[caller={caller}] Deactivated policy: {policy_id}")
+        return {
+            "success": True,
+            "message": f"Policy {policy_id} deactivated successfully"
+        }
+    except Exception as e:
+        logger.error(f"[caller={caller}] Exception deactivating policy: {e}")
+        return {"error": str(e)}
 
 @mcp.tool()
 def list_policy_rules(
@@ -250,4 +344,175 @@ def get_policy_rule(
         return rule
     except Exception as e:
         logger.error(f"[caller={caller}] Exception getting policy rule: {e}")
+        return {"error": str(e)}
+
+@mcp.tool()
+def create_policy_rule(
+    ctx: Context | None = None,
+    policy_id: str = "",
+    rule_data: Dict[str, Any] = None
+) -> Optional[Dict[str, Any]]:
+    """Create a new rule for a policy.
+
+    Parameters:
+        policy_id (str, required): The ID of the policy.
+        rule_data (dict, required): The rule configuration containing:
+            - name (str, required): Rule name
+            - priority (int, optional): Priority of the rule
+            - status (str, optional): ACTIVE or INACTIVE
+            - conditions (dict, optional): Rule conditions
+            - actions (dict, optional): Rule actions
+
+    Returns:
+        Dict containing the created rule details.
+    """
+    caller = get_caller_email(ctx)
+    logger.info(f"[caller={caller}] Creating rule for policy: {policy_id}")
+
+    if not policy_id or not rule_data:
+        logger.error(f"[caller={caller}] policy_id and rule_data are required")
+        return {"error": "policy_id and rule_data are required"}
+
+    try:
+        client = get_client()
+        rule = client.post(f"/api/v1/policies/{policy_id}/rules", data=rule_data)
+        logger.info(f"[caller={caller}] Created rule: {rule.get('id', 'N/A')}")
+        return rule
+    except Exception as e:
+        logger.error(f"[caller={caller}] Exception creating policy rule: {e}")
+        return {"error": str(e)}
+
+@mcp.tool()
+def update_policy_rule(
+    ctx: Context | None = None,
+    policy_id: str = "",
+    rule_id: str = "",
+    rule_data: Dict[str, Any] = None
+) -> Optional[Dict[str, Any]]:
+    """Update an existing policy rule.
+
+    Parameters:
+        policy_id (str, required): The ID of the policy.
+        rule_id (str, required): The ID of the rule to update.
+        rule_data (dict, required): The updated rule configuration.
+
+    Returns:
+        Dict containing the updated rule details.
+    """
+    caller = get_caller_email(ctx)
+    logger.info(f"[caller={caller}] Updating rule: {rule_id} in policy: {policy_id}")
+
+    if not policy_id or not rule_id or not rule_data:
+        logger.error(f"[caller={caller}] policy_id, rule_id, and rule_data are required")
+        return {"error": "policy_id, rule_id, and rule_data are required"}
+
+    try:
+        client = get_client()
+        rule = client.put(f"/api/v1/policies/{policy_id}/rules/{rule_id}", data=rule_data)
+        logger.info(f"[caller={caller}] Updated rule: {rule_id}")
+        return rule
+    except Exception as e:
+        logger.error(f"[caller={caller}] Exception updating policy rule: {e}")
+        return {"error": str(e)}
+
+@mcp.tool()
+def delete_policy_rule(
+    ctx: Context | None = None,
+    policy_id: str = "",
+    rule_id: str = ""
+) -> Dict[str, Any]:
+    """Delete a policy rule.
+
+    Parameters:
+        policy_id (str, required): The ID of the policy.
+        rule_id (str, required): The ID of the rule to delete.
+
+    Returns:
+        Dict with success status.
+    """
+    caller = get_caller_email(ctx)
+    logger.info(f"[caller={caller}] Deleting rule: {rule_id} from policy: {policy_id}")
+
+    if not policy_id or not rule_id:
+        logger.error(f"[caller={caller}] policy_id and rule_id are required")
+        return {"error": "policy_id and rule_id are required"}
+
+    try:
+        client = get_client()
+        client.delete(f"/api/v1/policies/{policy_id}/rules/{rule_id}")
+        logger.info(f"[caller={caller}] Deleted rule: {rule_id}")
+        return {
+            "success": True,
+            "message": f"Rule {rule_id} deleted successfully"
+        }
+    except Exception as e:
+        logger.error(f"[caller={caller}] Exception deleting policy rule: {e}")
+        return {"error": str(e)}
+
+@mcp.tool()
+def activate_policy_rule(
+    ctx: Context | None = None,
+    policy_id: str = "",
+    rule_id: str = ""
+) -> Dict[str, Any]:
+    """Activate a policy rule.
+
+    Parameters:
+        policy_id (str, required): The ID of the policy.
+        rule_id (str, required): The ID of the rule to activate.
+
+    Returns:
+        Dict with success status.
+    """
+    caller = get_caller_email(ctx)
+    logger.info(f"[caller={caller}] Activating rule: {rule_id} in policy: {policy_id}")
+
+    if not policy_id or not rule_id:
+        logger.error(f"[caller={caller}] policy_id and rule_id are required")
+        return {"error": "policy_id and rule_id are required"}
+
+    try:
+        client = get_client()
+        client.post(f"/api/v1/policies/{policy_id}/rules/{rule_id}/lifecycle/activate")
+        logger.info(f"[caller={caller}] Activated rule: {rule_id}")
+        return {
+            "success": True,
+            "message": f"Rule {rule_id} activated successfully"
+        }
+    except Exception as e:
+        logger.error(f"[caller={caller}] Exception activating policy rule: {e}")
+        return {"error": str(e)}
+
+@mcp.tool()
+def deactivate_policy_rule(
+    ctx: Context | None = None,
+    policy_id: str = "",
+    rule_id: str = ""
+) -> Dict[str, Any]:
+    """Deactivate a policy rule.
+
+    Parameters:
+        policy_id (str, required): The ID of the policy.
+        rule_id (str, required): The ID of the rule to deactivate.
+
+    Returns:
+        Dict with success status.
+    """
+    caller = get_caller_email(ctx)
+    logger.info(f"[caller={caller}] Deactivating rule: {rule_id} in policy: {policy_id}")
+
+    if not policy_id or not rule_id:
+        logger.error(f"[caller={caller}] policy_id and rule_id are required")
+        return {"error": "policy_id and rule_id are required"}
+
+    try:
+        client = get_client()
+        client.post(f"/api/v1/policies/{policy_id}/rules/{rule_id}/lifecycle/deactivate")
+        logger.info(f"[caller={caller}] Deactivated rule: {rule_id}")
+        return {
+            "success": True,
+            "message": f"Rule {rule_id} deactivated successfully"
+        }
+    except Exception as e:
+        logger.error(f"[caller={caller}] Exception deactivating policy rule: {e}")
         return {"error": str(e)}

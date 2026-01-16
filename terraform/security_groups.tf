@@ -48,7 +48,7 @@ resource "aws_security_group" "okta_mcp" {
     description = "Auth Gateway for Okta Readonly"
   }
 
-    # Auth gateway Admin
+  # Auth gateway Admin
   ingress {
     from_port   = 9001
     to_port     = 9001
