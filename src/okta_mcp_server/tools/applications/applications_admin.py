@@ -238,12 +238,11 @@ def assign_group_to_application(
 
 @mcp.tool()
 def create_application(
-    label: str,  # Remove default value to make it required
-    sign_on_mode: str,  # Remove default value
-    url: str = "",  # Keep empty default but validate based on sign_on_mode
+    label: str,
+    sign_on_mode: str,
+    url: str = "",
     ctx: Context | None = None,
     app_settings: Optional[Dict[str, Any]] = None,
-    # OIDC-specific parameters
     redirect_uris: Optional[list] = None,
     grant_types: Optional[list] = None,
     response_types: Optional[list] = None,
@@ -252,15 +251,15 @@ def create_application(
 ) -> Dict[str, Any]:
     """Create a new Okta application (requires okta.apps.manage scope).
     
-    IMPORTANT: This tool requires different fields based on the sign_on_mode.
-    Always ask the user for the required fields based on the application type they want to create.
+    IMPORTANT: This tool creates basic applications. SAML apps require additional 
+    configuration via the Okta UI after creation (ACS URL, Entity ID, certificates).
     
     Args:
         label: Display name for the application (REQUIRED - always ask user)
         sign_on_mode: Authentication mode (REQUIRED - ask user to choose):
                       - BOOKMARK: Simple link to external URL (requires url parameter)
                       - OPENID_CONNECT: OAuth/OIDC app (requires redirect_uris)
-                      - SAML_2_0: SAML SSO application
+                      - SAML_2_0: SAML SSO application (basic creation only)
                       - BROWSER_PLUGIN: Browser plugin app
                       - BASIC_AUTH: Basic authentication app
         url: The URL for BOOKMARK applications (REQUIRED if sign_on_mode is BOOKMARK)
@@ -274,37 +273,10 @@ def create_application(
     Required Fields by Application Type:
         BOOKMARK: label + sign_on_mode + url
         OPENID_CONNECT: label + sign_on_mode + redirect_uris
-        SAML_2_0: label + sign_on_mode only
-        BROWSER_PLUGIN: label + sign_on_mode only
-        BASIC_AUTH: label + sign_on_mode only
+        SAML_2_0: label + sign_on_mode (NOTE: Requires additional UI configuration)
     
-    Workflow:
-        1. Ask user: "What type of application?" (provide sign_on_mode options)
-        2. Ask user: "What is the application name?" (for label)
-        3. If BOOKMARK: Ask "What is the URL?"
-        4. If OPENID_CONNECT: Ask "What are the redirect URIs?" (comma-separated)
-        5. Call this tool with collected information
-    
-    Examples:
-        # Bookmark app (user provides: name + url):
-        create_application(
-            label="Company Intranet",
-            sign_on_mode="BOOKMARK",
-            url="https://intranet.company.com"
-        )
-        
-        # OIDC app (user provides: name + callback URL):
-        create_application(
-            label="Employee Portal",
-            sign_on_mode="OPENID_CONNECT",
-            redirect_uris=["https://portal.company.com/callback"]
-        )
-        
-        # SAML app (user provides: name only):
-        create_application(
-            label="Enterprise SSO",
-            sign_on_mode="SAML_2_0"
-        )
+    Returns:
+        Dict containing the created application details
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Creating application: {label} (mode={sign_on_mode})")
@@ -335,6 +307,7 @@ def create_application(
             logger.error(f"[caller={caller}] {error_msg}")
             raise ValueError(error_msg)
         
+        app_data["name"] = "bookmark"  # Required for BOOKMARK apps
         app_data["settings"] = {
             "app": {
                 "url": url,
@@ -349,6 +322,8 @@ def create_application(
             error_msg = "OPENID_CONNECT applications require 'redirect_uris'. Please ask the user for callback URLs."
             logger.error(f"[caller={caller}] {error_msg}")
             raise ValueError(error_msg)
+        
+        app_data["name"] = "oidc_client"  # Required for custom OIDC apps
         
         # Set defaults for OIDC
         if grant_types is None:
@@ -372,6 +347,14 @@ def create_application(
         }
         
         logger.info(f"[caller={caller}] OIDC config: grant_types={grant_types}, app_type={application_type}")
+    
+    # Handle SAML_2_0 - basic creation only
+    elif sign_on_mode == "SAML_2_0":
+        # SAML apps need minimal config for API creation
+        # Full SAML config (ACS URL, Entity ID, certs) must be done via UI
+        logger.warning(f"[caller={caller}] Creating basic SAML app - additional configuration required via Okta UI")
+        # Note: No "name" field needed for basic SAML app creation
+        # It will be auto-assigned by Okta
     
     # Handle other app types with custom settings
     elif app_settings:
@@ -399,7 +382,7 @@ def create_application(
             "sign_on_mode": sign_on_mode
         }
         
-        # Add type-specific info to response
+        # Add type-specific info and warnings to response
         if sign_on_mode == "OPENID_CONNECT":
             oauth_client = app.get("credentials", {}).get("oauthClient", {})
             result["client_id"] = oauth_client.get("client_id")
@@ -409,6 +392,9 @@ def create_application(
             bookmark_url = app.get("settings", {}).get("app", {}).get("url")
             result["url"] = bookmark_url
             logger.info(f"[caller={caller}] ✅ Created BOOKMARK app '{app_label}' (URL: {bookmark_url})")
+        elif sign_on_mode == "SAML_2_0":
+            result["warning"] = "SAML app created but requires additional configuration in Okta UI (ACS URL, Entity ID, certificates)"
+            logger.info(f"[caller={caller}] ✅ Created SAML app '{app_label}' (ID: {app_id}) - UI configuration required")
         else:
             logger.info(f"[caller={caller}] ✅ Created application '{app_label}' (ID: {app_id})")
         
