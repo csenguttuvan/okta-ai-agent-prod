@@ -411,7 +411,7 @@ def create_application(
 @mcp.tool()
 def batch_assign_users_to_application(
     app_id: str,
-    user_ids: List[str],
+    user_ids: list[str],
     ctx: Context | None = None
 ) -> Dict[str, Any]:
     """Assign multiple users to an application in batch.
