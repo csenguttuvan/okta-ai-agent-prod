@@ -443,3 +443,129 @@ def remove_users_from_group_by_attribute(
             "error": str(e),
             "count": 0
         }
+    
+@mcp.tool()
+def unassign_users_from_application_by_attribute(
+    app_id: str,
+    attribute: str,
+    value: str,
+    dry_run: bool = False,
+    ctx: Context | None = None
+) -> Dict[str, Any]:
+    """Find users by profile attribute and remove them from an application.
+    
+    Args:
+        app_id: The Okta application ID
+        attribute: Profile attribute name (e.g., 'division', 'department')
+        value: Attribute value to match
+        dry_run: If True, only return who would be removed without making changes
+    
+    Returns:
+        Dict with operation results
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Bulk removing users with {attribute}={value} from app {app_id}")
+    
+    if not app_id or not attribute or not value:
+        error_msg = "app_id, attribute, and value are all required"
+        logger.error(f"[caller={caller}] {error_msg}")
+        raise ValueError(error_msg)
+    
+    try:
+        client = get_client()
+        
+        # Step 1: Search users by attribute
+        search_filter = f'profile.{attribute} eq "{value}"'
+        response = client.get("/api/v1/users", params={
+            "search": search_filter,
+            "limit": 200
+        })
+        
+        matching_users = []
+        for user in response:
+            matching_users.append({
+                "id": user.get("id"),
+                "email": user.get("profile", {}).get("email"),
+                "name": f"{user.get('profile', {}).get('firstName', '')} {user.get('profile', {}).get('lastName', '')}".strip()
+            })
+        
+        if not matching_users:
+            logger.info(f"[caller={caller}] No users found with {attribute}={value}")
+            return {
+                "success": True,
+                "message": f"No users found with {attribute}={value}",
+                "count": 0,
+                "users": []
+            }
+        
+        # Step 2: Dry run
+        if dry_run:
+            logger.info(f"[caller={caller}] DRY RUN: Would remove {len(matching_users)} users from app {app_id}")
+            return {
+                "success": True,
+                "message": f"DRY RUN: Would remove {len(matching_users)} users from application",
+                "count": len(matching_users),
+                "users": matching_users,
+                "app_id": app_id,
+                "filter": search_filter
+            }
+        
+        # Step 3: Remove users from application
+        results = []
+        errors = []
+        
+        for user in matching_users:
+            try:
+                client.delete(f"/api/v1/apps/{app_id}/users/{user['id']}")
+                results.append({
+                    "user_id": user["id"],
+                    "email": user["email"],
+                    "status": "removed"
+                })
+                logger.info(f"[caller={caller}] ✅ Removed {user['email']} from app {app_id}")
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "not found" in error_msg.lower() or "404" in error_msg:
+                    results.append({
+                        "user_id": user["id"],
+                        "email": user["email"],
+                        "status": "not_assigned"
+                    })
+                    logger.info(f"[caller={caller}] ℹ️ {user['email']} not assigned to app")
+                else:
+                    errors.append({
+                        "user_id": user["id"],
+                        "email": user["email"],
+                        "error": error_msg
+                    })
+                    logger.error(f"[caller={caller}] ❌ Failed to remove {user['email']}: {error_msg}")
+        
+        removed_count = len([r for r in results if r["status"] == "removed"])
+        not_assigned_count = len([r for r in results if r["status"] == "not_assigned"])
+        
+        logger.info(f"[caller={caller}] ✅ Completed: {removed_count} removed, {not_assigned_count} not assigned, {len(errors)} errors")
+        
+        return {
+            "success": True,
+            "message": f"Removed {removed_count} users from application",
+            "total_found": len(matching_users),
+            "removed": removed_count,
+            "not_assigned": not_assigned_count,
+            "errors": len(errors),
+            "results": results,
+            "error_details": errors if errors else None,
+            "app_id": app_id,
+            "filter": search_filter
+        }
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error in bulk app removal: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "count": 0
+        }

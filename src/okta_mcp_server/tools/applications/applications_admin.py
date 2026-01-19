@@ -408,4 +408,94 @@ def create_application(
         raise
 
 
-   
+@mcp.tool()
+def batch_assign_users_to_application(
+    app_id: str,
+    user_ids: List[str],
+    ctx: Context | None = None
+) -> Dict[str, Any]:
+    """Assign multiple users to an application in batch.
+    
+    Args:
+        app_id: The Okta application ID
+        user_ids: List of Okta user IDs to assign to the application
+    
+    Returns:
+        Dict with batch assignment results including success/failure counts
+    
+    Example:
+        batch_assign_users_to_application(
+            app_id="0oa123abc",
+            user_ids=["00u111", "00u222", "00u333"]
+        )
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Batch assigning {len(user_ids)} users to application {app_id}")
+    
+    if not app_id or not user_ids:
+        error_msg = "Both app_id and user_ids are required"
+        logger.error(f"[caller={caller}] {error_msg}")
+        raise ValueError(error_msg)
+    
+    try:
+        client = get_client()
+        results = []
+        errors = []
+        
+        for user_id in user_ids:
+            try:
+                assignment = client.post(
+                    f"/api/v1/apps/{app_id}/users",
+                    data={"id": user_id}
+                )
+                results.append({
+                    "user_id": user_id,
+                    "status": "assigned",
+                    "assignment_id": assignment.get("id")
+                })
+                logger.info(f"[caller={caller}] ✅ Assigned user {user_id} to app {app_id}")
+                
+            except Exception as e:
+                error_msg = str(e)
+                # Check if already assigned (409 conflict)
+                if "already exists" in error_msg.lower() or "409" in error_msg:
+                    results.append({
+                        "user_id": user_id,
+                        "status": "already_assigned"
+                    })
+                    logger.info(f"[caller={caller}] ℹ️ User {user_id} already assigned to app")
+                else:
+                    errors.append({
+                        "user_id": user_id,
+                        "error": error_msg
+                    })
+                    logger.error(f"[caller={caller}] ❌ Failed to assign user {user_id}: {error_msg}")
+        
+        assigned_count = len([r for r in results if r["status"] == "assigned"])
+        already_assigned_count = len([r for r in results if r["status"] == "already_assigned"])
+        
+        logger.info(f"[caller={caller}] ✅ Completed: {assigned_count} assigned, {already_assigned_count} already assigned, {len(errors)} errors")
+        
+        return {
+            "success": True,
+            "message": f"Assigned {assigned_count} users to application",
+            "total_requested": len(user_ids),
+            "assigned": assigned_count,
+            "already_assigned": already_assigned_count,
+            "errors": len(errors),
+            "results": results,
+            "error_details": errors if errors else None,
+            "app_id": app_id
+        }
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error in batch assignment: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "total_requested": len(user_ids),
+            "assigned": 0
+        } 
