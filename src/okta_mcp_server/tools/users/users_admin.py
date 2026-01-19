@@ -86,7 +86,7 @@ def delete_user(user_id: str, ctx: Context = None) -> dict:
 @mcp.tool()
 def add_users_to_group(
     group_id: str,
-    user_ids: List[str]
+    user_ids: list[str]
 ) -> dict:
     """Add multiple users to a group in a single operation
     
