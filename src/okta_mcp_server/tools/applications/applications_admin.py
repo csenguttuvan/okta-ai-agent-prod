@@ -275,14 +275,6 @@ def create_application(
             response_types=["code"]
         )
         
-        # Create OIDC service app (client credentials):
-        create_application(
-            label="API Service",
-            sign_on_mode="OPENID_CONNECT",
-            grant_types=["client_credentials"],
-            application_type="service"
-        )
-        
         # Create SAML app:
         create_application(label="Enterprise SSO", sign_on_mode="SAML_2_0")
     """
@@ -334,11 +326,12 @@ def create_application(
             "app": app_settings
         }
     
-    params = {"activate": str(activate).lower()}
+    # Build endpoint with activate parameter
+    endpoint = f"/api/v1/apps?activate={str(activate).lower()}"
     
     try:
         client = get_client()
-        app = client.post("/api/v1/apps", data=app_data, params=params)
+        app = client.post(endpoint, data=app_data)
         
         app_id = app.get("id", "N/A")
         app_label = app.get("label", "N/A")
@@ -369,4 +362,5 @@ def create_application(
     except Exception as e:
         logger.error(f"[caller={caller}] ❌ Error creating application: {str(e)}")
         raise
+
    
