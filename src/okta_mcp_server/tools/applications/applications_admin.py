@@ -234,3 +234,139 @@ def assign_group_to_application(
     except Exception as e:
         logger.error(f"[caller={caller}] Error assigning group to application: {str(e)}")
         raise
+
+
+@mcp.tool()
+def create_application(
+    ctx: Context | None = None,
+    label: str = "",
+    sign_on_mode: str = "SAML_2_0",
+    app_settings: Optional[Dict[str, Any]] = None,
+    # OIDC-specific parameters
+    redirect_uris: Optional[list] = None,
+    grant_types: Optional[list] = None,
+    response_types: Optional[list] = None,
+    application_type: str = "web",
+    activate: bool = True
+) -> Dict[str, Any]:
+    """Create a new Okta application (requires okta.apps.manage scope).
+    
+    Args:
+        label: Display name for the application (required)
+        sign_on_mode: Authentication mode - SAML_2_0, OPENID_CONNECT, BROWSER_PLUGIN,
+                      WS_FEDERATION, BASIC_AUTH, BOOKMARK (default: SAML_2_0)
+        app_settings: Application-specific settings dict (optional, for non-OIDC apps)
+        redirect_uris: List of redirect URIs (required for OIDC)
+        grant_types: List of OAuth grant types (for OIDC, default: ["authorization_code"])
+        response_types: List of response types (for OIDC, default: ["code"])
+        application_type: OIDC app type - web, native, or browser (default: web)
+        activate: Whether to activate the app immediately (default: True)
+    
+    Returns:
+        Dict containing the created application details
+    
+    Examples:
+        # Create OIDC web application:
+        create_application(
+            label="My Web App",
+            sign_on_mode="OPENID_CONNECT",
+            redirect_uris=["https://app.example.com/callback"],
+            grant_types=["authorization_code"],
+            response_types=["code"]
+        )
+        
+        # Create OIDC service app (client credentials):
+        create_application(
+            label="API Service",
+            sign_on_mode="OPENID_CONNECT",
+            grant_types=["client_credentials"],
+            application_type="service"
+        )
+        
+        # Create SAML app:
+        create_application(label="Enterprise SSO", sign_on_mode="SAML_2_0")
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Creating application: {label} (mode={sign_on_mode})")
+    
+    if not label:
+        logger.error(f"[caller={caller}] label is required")
+        raise ValueError("label is required")
+    
+    # Build application payload
+    app_data = {
+        "label": label,
+        "signOnMode": sign_on_mode
+    }
+    
+    # Handle OIDC-specific configuration
+    if sign_on_mode == "OPENID_CONNECT":
+        if not redirect_uris and application_type != "service":
+            logger.error(f"[caller={caller}] redirect_uris required for OIDC apps (unless service app)")
+            raise ValueError("redirect_uris are required for OIDC web/native/browser apps")
+        
+        # Set defaults for OIDC
+        if grant_types is None:
+            grant_types = ["authorization_code"] if application_type != "service" else ["client_credentials"]
+        if response_types is None:
+            response_types = ["code"]
+        
+        app_data["credentials"] = {
+            "oauthClient": {
+                "token_endpoint_auth_method": "client_secret_basic"
+            }
+        }
+        
+        app_data["settings"] = {
+            "oauthClient": {
+                "redirect_uris": redirect_uris or [],
+                "grant_types": grant_types,
+                "response_types": response_types,
+                "application_type": application_type
+            }
+        }
+        
+        logger.info(f"[caller={caller}] OIDC config: grant_types={grant_types}, app_type={application_type}")
+    
+    # Handle other app types with custom settings
+    elif app_settings:
+        app_data["settings"] = {
+            "app": app_settings
+        }
+    
+    params = {"activate": str(activate).lower()}
+    
+    try:
+        client = get_client()
+        app = client.post("/api/v1/apps", data=app_data, params=params)
+        
+        app_id = app.get("id", "N/A")
+        app_label = app.get("label", "N/A")
+        
+        # Extract client credentials for OIDC apps
+        result = {
+            "success": True,
+            "application": app,
+            "id": app_id,
+            "label": app_label,
+            "status": app.get("status", "UNKNOWN")
+        }
+        
+        # Add OIDC client credentials to response
+        if sign_on_mode == "OPENID_CONNECT":
+            oauth_client = app.get("credentials", {}).get("oauthClient", {})
+            result["client_id"] = oauth_client.get("client_id")
+            result["client_secret"] = oauth_client.get("client_secret")
+            logger.info(f"[caller={caller}] ✅ Created OIDC app '{app_label}' (client_id: {result.get('client_id')})")
+        else:
+            logger.info(f"[caller={caller}] ✅ Created application '{app_label}' (ID: {app_id})")
+        
+        return result
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error creating application: {str(e)}")
+        raise
+   
