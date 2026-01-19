@@ -450,7 +450,7 @@ def unassign_users_from_application_by_attribute(
     value: str,
     dry_run: bool = False,
     ctx: Context | None = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Find users by profile attribute and remove them from an application.
     
     Args:
