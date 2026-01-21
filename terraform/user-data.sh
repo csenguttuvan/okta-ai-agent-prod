@@ -177,7 +177,7 @@ def _get_relevant_categories(user_message: str) -> Set[str]:
         categories.add("group")
     
     # Application-related queries
-    if any(w in msg for w in ["app", "application", "applications", "saml", "oidc", "sso", "assign", "list application", "find application", "get application", "create application"]):
+    if any(w in msg for w in ["app", "application", "applications", "saml", "oidc", "sso", "assign", "list application", "find application", "get application", "create application", "app roles", "roles"]):
         categories.add("app")
     
     # Policy-related queries

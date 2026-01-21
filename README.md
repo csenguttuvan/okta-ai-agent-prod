@@ -72,8 +72,20 @@ EC2 Instance (AWS eu-west-3)
 #### Application Management
 - `list_applications` - View all applications
 - `get_application` - Get app details
-- `list_application_users` - View app assignments
-- `assign_user_to_application` - Assign users to apps (admin only)
+- `list_application_users` - View users assigned to an app
+- `list_application_groups` - View groups assigned to an app
+- `get_application_schema` - Get app user profile schema (shows available role fields)
+- `list_application_available_roles` - List all roles configured/available on an app
+- `list_application_roles_in_use` - List unique roles currently assigned to users
+- `get_user_application_roles` - Get specific user's role(s) for an app
+- `check_role_exists_on_application` - Validate if a specific role exists on an app
+- `assign_user_to_application` - Assign user to app (admin only)
+- `assign_user_to_application_with_role` - Assign user to app with specific role (admin only)
+- `update_user_application_role` - Update role for already-assigned user (admin only)
+- `assign_group_to_application` - Assign group to app (admin only)
+- `create_application` - Create new application (admin only)
+- `unassign_users_from_application_by_attribute` - Bulk unassign users by attribute filter (admin only)
+
 
 #### Policy & Audit
 - `list_policies` - View authentication policies

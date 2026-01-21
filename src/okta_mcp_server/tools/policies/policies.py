@@ -251,3 +251,100 @@ def get_policy_rule(
     except Exception as e:
         logger.error(f"[caller={caller}] Exception getting policy rule: {e}")
         return {"error": str(e)}
+    
+
+
+@mcp.tool()
+def reset_user_mfa_and_password(
+    user_id: str,
+    revoke_sessions: bool = True,
+    ctx: Context = None
+) -> dict:
+    """Reset user's MFA factors and password, returning a temporary password.
+    
+    This tool performs two operations:
+    1. Resets all MFA factors for the user (requires re-enrollment)
+    2. Expires password and generates a temporary password
+    
+    Args:
+        user_id: The Okta user ID or login email
+        revoke_sessions: If True, signs user out of all sessions (default: True)
+        ctx: Optional context
+        
+    Returns:
+        Dict containing temporary password and operation status
+        
+    Requires: okta.users.manage scope
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Resetting MFA and password for user: {user_id}")
+    
+    client = get_client()
+    results = {
+        "user_id": user_id,
+        "success": False,
+        "mfa_reset": False,
+        "password_reset": False,
+        "temp_password": None,
+        "sessions_revoked": revoke_sessions
+    }
+    
+    try:
+        # Step 1: Reset all MFA factors
+        try:
+            client.post(f"/api/v1/users/{user_id}/lifecycle/reset_factors", data={})
+            results["mfa_reset"] = True
+            logger.info(f"[caller={caller}] ✅ MFA factors reset for user: {user_id}")
+        except Exception as mfa_error:
+            logger.error(f"[caller={caller}] ❌ Failed to reset MFA: {str(mfa_error)}")
+            results["mfa_error"] = str(mfa_error)
+        
+        # Step 2: Expire password and get temporary password
+        try:
+            response = client.post(
+                f"/api/v1/users/{user_id}/lifecycle/expire_password",
+                params={"tempPassword": "true", "revokeSessions": str(revoke_sessions).lower()},
+                data={}
+            )
+            
+            temp_password = response.get("tempPassword")
+            results["password_reset"] = True
+            results["temp_password"] = temp_password
+            logger.info(f"[caller={caller}] ✅ Password reset with temp password for user: {user_id}")
+        except Exception as pwd_error:
+            logger.error(f"[caller={caller}] ❌ Failed to reset password: {str(pwd_error)}")
+            results["password_error"] = str(pwd_error)
+        
+        # Overall success if at least one operation succeeded
+        results["success"] = results["mfa_reset"] or results["password_reset"]
+        
+        if results["success"]:
+            logger.info(f"[caller={caller}] ✅ Reset completed - MFA: {results['mfa_reset']}, Password: {results['password_reset']}")
+            return {
+                "success": True,
+                "user_id": user_id,
+                "temp_password": results["temp_password"],
+                "message": "User MFA and password reset successfully. Provide the temporary password to the user.",
+                "mfa_reset": results["mfa_reset"],
+                "password_reset": results["password_reset"],
+                "sessions_revoked": revoke_sessions,
+                "next_steps": [
+                    "User must sign in with the temporary password",
+                    "User will be prompted to set a new password",
+                    "User must re-enroll in MFA factors"
+                ]
+            }
+        else:
+            raise Exception("Both MFA and password reset operations failed")
+            
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error resetting user credentials: {str(e)}")
+        return {
+            "success": False,
+            "user_id": user_id,
+            "error": str(e),
+            "partial_results": results
+        }
