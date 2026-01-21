@@ -894,3 +894,151 @@ def list_application_available_roles(
         logger.error(f"[caller={caller}] ❌ Error listing application roles: {str(e)}")
         raise
 
+
+@mcp.tool()
+def check_role_exists_on_application(
+    app_id: str,
+    role: str,
+    ctx: Context | None = None
+) -> Dict[str, Any]:
+    """Check if a specific role exists/is available on an application.
+    
+    Validates whether a given role (e.g., AWS IAM role ARN) is configured and
+    available for assignment on the specified application.
+    
+    Args:
+        app_id: The Okta application ID
+        role: The role to check (e.g., "arn:aws:iam::123456789012:role/AdminRole,arn:aws:iam::123456789012:saml-provider/Okta")
+        
+    Returns:
+        Dict with validation result and suggestions if role not found
+        
+    Example:
+        # Check if specific AWS role exists
+        result = check_role_exists_on_application(
+            app_id="0oaAWS123",
+            role="arn:aws:iam::123456789012:role/AdminRole,arn:aws:iam::123456789012:saml-provider/Okta"
+        )
+        # Returns: {"exists": True, "role": "...", "message": "Role exists and can be assigned"}
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Checking if role exists on app {app_id}: {role}")
+    
+    if not app_id or not role:
+        error_msg = "Both app_id and role are required"
+        logger.error(f"[caller={caller}] {error_msg}")
+        raise ValueError(error_msg)
+    
+    try:
+        client = get_client()
+        
+        # Get the full application details
+        app = client.get(f"/api/v1/apps/{app_id}")
+        app_name = app.get("label", "Unknown")
+        
+        available_roles = []
+        role_source = "unknown"
+        
+        # Try to get available roles from schema first
+        try:
+            schema = client.get(f"/api/v1/meta/schemas/apps/{app_id}/default")
+            custom_props = schema.get("definitions", {}).get("custom", {}).get("properties", {})
+            
+            # Check samlRoles field (most common for AWS/SAML apps)
+            if "samlRoles" in custom_props:
+                saml_roles_def = custom_props["samlRoles"]
+                items_def = saml_roles_def.get("items", {})
+                
+                if "enum" in items_def:
+                    available_roles = items_def["enum"]
+                    role_source = "schema_enum"
+                elif "oneOf" in items_def:
+                    available_roles = [item.get("const") or item.get("title") 
+                                     for item in items_def["oneOf"] if item.get("const") or item.get("title")]
+                    role_source = "schema_oneof"
+            
+            # Check other role fields
+            if not available_roles:
+                for field_name in ["role", "roles"]:
+                    if field_name in custom_props:
+                        field_def = custom_props[field_name]
+                        if field_def.get("type") == "array" and "enum" in field_def.get("items", {}):
+                            available_roles = field_def["items"]["enum"]
+                            role_source = f"schema_{field_name}"
+                            break
+                        elif "enum" in field_def:
+                            available_roles = field_def["enum"]
+                            role_source = f"schema_{field_name}"
+                            break
+        except Exception as schema_error:
+            logger.warning(f"[caller={caller}] Could not fetch schema: {str(schema_error)}")
+        
+        # Fallback: Get roles from existing user assignments
+        if not available_roles:
+            try:
+                users = client.get(f"/api/v1/apps/{app_id}/users", params={"limit": 200})
+                role_set = set()
+                for user in users:
+                    profile = user.get("profile", {})
+                    saml_roles = profile.get("samlRoles", [])
+                    if saml_roles:
+                        role_set.update(saml_roles)
+                    elif profile.get("role"):
+                        role_set.add(profile.get("role"))
+                available_roles = list(role_set)
+                role_source = "inferred_from_assignments"
+                logger.info(f"[caller={caller}] Inferred {len(available_roles)} roles from user assignments")
+            except Exception as user_error:
+                logger.warning(f"[caller={caller}] Could not infer roles: {str(user_error)}")
+        
+        # Check if the role exists (exact match)
+        role_exists = role in available_roles
+        
+        result = {
+            "success": True,
+            "app_id": app_id,
+            "app_name": app_name,
+            "role": role,
+            "exists": role_exists,
+            "total_available_roles": len(available_roles),
+            "role_source": role_source
+        }
+        
+        if role_exists:
+            result["message"] = f"✅ Role exists on application '{app_name}' and can be assigned to users"
+            logger.info(f"[caller={caller}] ✅ Role found on app {app_id}")
+        else:
+            # Role not found - provide helpful feedback
+            result["message"] = f"❌ Role not found on application '{app_name}'"
+            
+            # If we found other roles, suggest similar ones
+            if available_roles:
+                # Try fuzzy matching for suggestions
+                from difflib import get_close_matches
+                suggestions = get_close_matches(role, available_roles, n=3, cutoff=0.3)
+                
+                if suggestions:
+                    result["suggestions"] = suggestions
+                    result["message"] += f". Did you mean one of these? {suggestions[:3]}"
+                else:
+                    result["available_roles"] = available_roles
+                    result["message"] += f". Available roles: {len(available_roles)} role(s) found"
+            else:
+                result["message"] += (
+                    ". No roles found on this app. "
+                    "This could mean: (1) No roles configured, "
+                    "(2) No users assigned yet to infer from, or "
+                    "(3) Roles are assigned dynamically without predefined options."
+                )
+                result["note"] = "You may still be able to assign this role if the app accepts dynamic role values"
+            
+            logger.info(f"[caller={caller}] ❌ Role not found on app {app_id}")
+        
+        return result
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error checking role existence: {str(e)}")
+        raise
