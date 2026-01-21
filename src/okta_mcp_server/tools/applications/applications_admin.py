@@ -499,3 +499,398 @@ def batch_assign_users_to_application(
             "total_requested": len(user_ids),
             "assigned": 0
         } 
+    
+@mcp.tool()
+def assign_user_to_application_with_role(
+    app_id: str,
+    user_id: str,
+    role: Optional[str] = None,
+    profile: Optional[Dict[str, Any]] = None,
+    ctx: Context | None = None
+) -> Dict[str, Any]:
+    """Assign a user to an application with a specific role or profile attributes.
+    
+    This is particularly useful for applications like AWS where you need to assign
+    users to specific IAM roles imported from AWS via SAML.
+    
+    Args:
+        app_id: The Okta application ID
+        user_id: The Okta user ID or login email
+        role: The role to assign (e.g., for AWS: "arn:aws:iam::123456789012:role/AdminRole,arn:aws:iam::123456789012:saml-provider/OktaProvider")
+        profile: Dict of additional profile attributes to set for this app assignment
+                 Example: {"samlRoles": ["role1", "role2"], "customAttribute": "value"}
+        
+    Returns:
+        Dict with assignment details including the assigned role
+        
+    Examples:
+        # Assign user to AWS app with specific IAM role
+        assign_user_to_application_with_role(
+            app_id="0oa123abc",
+            user_id="john.doe@example.com",
+            role="arn:aws:iam::123456789012:role/AdminRole,arn:aws:iam::123456789012:saml-provider/OktaProvider"
+        )
+        
+        # Assign with custom profile attributes
+        assign_user_to_application_with_role(
+            app_id="0oa123abc",
+            user_id="jane.doe@example.com",
+            profile={"department": "Engineering", "customRole": "Developer"}
+        )
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Assigning user {user_id} to app {app_id} with role: {role}")
+    
+    if not app_id or not user_id:
+        error_msg = "Both app_id and user_id are required"
+        logger.error(f"[caller={caller}] {error_msg}")
+        raise ValueError(error_msg)
+    
+    try:
+        client = get_client()
+        
+        # Build the assignment payload
+        assignment_data = {
+            "id": user_id
+        }
+        
+        # Add profile data if role or custom profile provided
+        if role or profile:
+            profile_data = profile.copy() if profile else {}
+            
+            # Add role to profile if provided
+            if role:
+                # For AWS apps, the role field is typically "samlRoles" (array)
+                # But some apps use "role" (string). We'll support both patterns.
+                if isinstance(role, list):
+                    profile_data["samlRoles"] = role
+                else:
+                    # Single role - try to detect if it's AWS format
+                    if "arn:aws:iam::" in role:
+                        profile_data["samlRoles"] = [role]
+                    else:
+                        profile_data["role"] = role
+            
+            assignment_data["profile"] = profile_data
+            logger.info(f"[caller={caller}] Profile data: {profile_data}")
+        
+        # Assign user to application
+        assignment = client.post(
+            f"/api/v1/apps/{app_id}/users",
+            data=assignment_data
+        )
+        
+        assigned_profile = assignment.get("profile", {})
+        logger.info(f"[caller={caller}] ✅ Assigned user {user_id} to app {app_id}")
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "app_id": app_id,
+            "assignment_id": assignment.get("id"),
+            "profile": assigned_profile,
+            "role": assigned_profile.get("samlRoles") or assigned_profile.get("role"),
+            "message": f"User {user_id} assigned to application with role/profile"
+        }
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[caller={caller}] ❌ Error assigning user with role: {error_msg}")
+        
+        # Provide helpful error message for common issues
+        if "400" in error_msg:
+            raise ValueError(f"Invalid role or profile format. Check app profile schema: {error_msg}")
+        raise
+
+
+
+@mcp.tool()
+def update_user_application_role(
+    app_id: str,
+    user_id: str,
+    role: Optional[str] = None,
+    profile: Optional[Dict[str, Any]] = None,
+    ctx: Context | None = None
+) -> Dict[str, Any]:
+    """Update the role or profile for a user already assigned to an application.
+    
+    Use this to change AWS IAM roles or other app-specific attributes for existing assignments.
+    
+    Args:
+        app_id: The Okta application ID
+        user_id: The Okta user ID or login email
+        role: The new role to assign (e.g., AWS IAM role ARN)
+        profile: Dict of profile attributes to update
+        
+    Returns:
+        Dict with updated assignment details
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Updating role for user {user_id} in app {app_id}")
+    
+    if not app_id or not user_id:
+        error_msg = "Both app_id and user_id are required"
+        logger.error(f"[caller={caller}] {error_msg}")
+        raise ValueError(error_msg)
+    
+    try:
+        client = get_client()
+        
+        # Build profile update
+        profile_data = profile.copy() if profile else {}
+        
+        if role:
+            if isinstance(role, list):
+                profile_data["samlRoles"] = role
+            else:
+                if "arn:aws:iam::" in role:
+                    profile_data["samlRoles"] = [role]
+                else:
+                    profile_data["role"] = role
+        
+        # Update the application user profile
+        updated = client.post(
+            f"/api/v1/apps/{app_id}/users/{user_id}",
+            data={"profile": profile_data}
+        )
+        
+        logger.info(f"[caller={caller}] ✅ Updated role for user {user_id} in app {app_id}")
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "app_id": app_id,
+            "profile": updated.get("profile", {}),
+            "role": updated.get("profile", {}).get("samlRoles") or updated.get("profile", {}).get("role"),
+            "message": "User application role updated successfully"
+        }
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error updating user role: {str(e)}")
+        raise
+
+
+@mcp.tool()
+def list_application_available_roles(
+    app_id: str,
+    ctx: Context | None = None
+) -> Dict[str, Any]:
+    """List all available/importable roles defined for an application.
+    
+    For AWS apps, this returns all IAM roles that have been imported from AWS into Okta.
+    For other SAML apps, this returns the role options configured in the app settings.
+    These are the roles you can assign to users.
+    
+    Args:
+        app_id: The Okta application ID
+        
+    Returns:
+        Dict containing available roles that can be assigned to users
+        
+    Example for AWS app:
+        {
+            "available_roles": [
+                "arn:aws:iam::123456789012:role/AdminRole,arn:aws:iam::123456789012:saml-provider/Okta",
+                "arn:aws:iam::123456789012:role/DeveloperRole,arn:aws:iam::123456789012:saml-provider/Okta",
+                "arn:aws:iam::123456789012:role/ReadOnlyRole,arn:aws:iam::123456789012:saml-provider/Okta"
+            ],
+            "role_count": 3,
+            "app_name": "AWS Account",
+            "aws_account_id": "123456789012"
+        }
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Listing available roles for app: {app_id}")
+    
+    if not app_id:
+        error_msg = "app_id is required"
+        logger.error(f"[caller={caller}] {error_msg}")
+        raise ValueError(error_msg)
+    
+    try:
+        client = get_client()
+        
+        # Get the full application details
+        app = client.get(f"/api/v1/apps/{app_id}")
+        
+        app_name = app.get("label", "Unknown")
+        app_settings = app.get("settings", {})
+        app_config = app_settings.get("app", {})
+        sign_on_settings = app_settings.get("signOn", {})
+        
+        available_roles = []
+        role_source = "unknown"
+        additional_info = {}
+        
+        # Check for AWS-specific role configuration
+        if "identityProviderArn" in app_config:
+            # This is an AWS app
+            role_source = "aws"
+            
+            # Extract AWS account ID and provider ARN
+            idp_arn = app_config.get("identityProviderArn", "")
+            if "arn:aws:iam::" in idp_arn:
+                # Parse: arn:aws:iam::123456789012:saml-provider/ProviderName
+                parts = idp_arn.split(":")
+                if len(parts) >= 5:
+                    aws_account_id = parts[4]
+                    additional_info["aws_account_id"] = aws_account_id
+                    additional_info["identity_provider_arn"] = idp_arn
+            
+            # AWS roles are stored in app config - check multiple possible locations
+            # Option 1: groupFilter (role ARNs in filter)
+            group_filter = app_config.get("groupFilter")
+            if group_filter:
+                additional_info["group_filter"] = group_filter
+            
+            # Option 2: roleValuePattern (for role mapping)
+            role_pattern = app_config.get("roleValuePattern")
+            if role_pattern:
+                additional_info["role_value_pattern"] = role_pattern
+            
+            # Option 3: Get from app schema to see configured role options
+            try:
+                schema = client.get(f"/api/v1/meta/schemas/apps/{app_id}/default")
+                custom_props = schema.get("definitions", {}).get("custom", {}).get("properties", {})
+                
+                # Check for samlRoles enum (predefined role list)
+                if "samlRoles" in custom_props:
+                    saml_roles_def = custom_props["samlRoles"]
+                    items_def = saml_roles_def.get("items", {})
+                    
+                    # Check for enum values (predefined list of roles)
+                    if "enum" in items_def:
+                        available_roles = items_def["enum"]
+                        role_source = "aws_schema_enum"
+                    # Check for oneOf pattern
+                    elif "oneOf" in items_def:
+                        available_roles = [item.get("const") or item.get("title") 
+                                         for item in items_def["oneOf"] if item.get("const") or item.get("title")]
+                        role_source = "aws_schema_oneof"
+            except Exception as schema_error:
+                logger.warning(f"[caller={caller}] Could not fetch schema: {str(schema_error)}")
+            
+            # Option 4: Parse from existing user assignments if roles aren't in schema
+            if not available_roles:
+                try:
+                    users = client.get(f"/api/v1/apps/{app_id}/users", params={"limit": 200})
+                    role_set = set()
+                    for user in users:
+                        saml_roles = user.get("profile", {}).get("samlRoles", [])
+                        role_set.update(saml_roles)
+                    available_roles = sorted(list(role_set))
+                    role_source = "aws_inferred_from_assignments"
+                except Exception as user_error:
+                    logger.warning(f"[caller={caller}] Could not infer roles from users: {str(user_error)}")
+        
+        # Check for SAML app role configuration (non-AWS)
+        elif app.get("signOnMode") == "SAML_2_0":
+            role_source = "saml"
+            
+            # Check schema for role enum values
+            try:
+                schema = client.get(f"/api/v1/meta/schemas/apps/{app_id}/default")
+                custom_props = schema.get("definitions", {}).get("custom", {}).get("properties", {})
+                
+                # Look for role or samlRoles fields with enum
+                for field_name in ["samlRoles", "role", "roles"]:
+                    if field_name in custom_props:
+                        field_def = custom_props[field_name]
+                        
+                        # Array type with enum items
+                        if field_def.get("type") == "array":
+                            items = field_def.get("items", {})
+                            if "enum" in items:
+                                available_roles = items["enum"]
+                                role_source = f"saml_schema_{field_name}"
+                                break
+                        # String type with enum
+                        elif "enum" in field_def:
+                            available_roles = field_def["enum"]
+                            role_source = f"saml_schema_{field_name}"
+                            break
+            except Exception as schema_error:
+                logger.warning(f"[caller={caller}] Could not fetch SAML schema: {str(schema_error)}")
+            
+            # Fallback: infer from existing assignments
+            if not available_roles:
+                try:
+                    users = client.get(f"/api/v1/apps/{app_id}/users", params={"limit": 200})
+                    role_set = set()
+                    for user in users:
+                        profile = user.get("profile", {})
+                        # Check various role fields
+                        if profile.get("samlRoles"):
+                            role_set.update(profile["samlRoles"])
+                        elif profile.get("role"):
+                            role_set.add(profile["role"])
+                        elif profile.get("roles"):
+                            if isinstance(profile["roles"], list):
+                                role_set.update(profile["roles"])
+                            else:
+                                role_set.add(profile["roles"])
+                    available_roles = sorted(list(role_set))
+                    role_source = "saml_inferred_from_assignments"
+                except Exception:
+                    pass
+        
+        # For other app types, check schema
+        else:
+            try:
+                schema = client.get(f"/api/v1/meta/schemas/apps/{app_id}/default")
+                custom_props = schema.get("definitions", {}).get("custom", {}).get("properties", {})
+                
+                for field_name, field_def in custom_props.items():
+                    if "role" in field_name.lower():
+                        if field_def.get("type") == "array" and "enum" in field_def.get("items", {}):
+                            available_roles = field_def["items"]["enum"]
+                            role_source = f"schema_{field_name}"
+                            break
+                        elif "enum" in field_def:
+                            available_roles = field_def["enum"]
+                            role_source = f"schema_{field_name}"
+                            break
+            except Exception:
+                pass
+        
+        logger.info(f"[caller={caller}] Found {len(available_roles)} available roles (source: {role_source})")
+        
+        result = {
+            "success": True,
+            "app_id": app_id,
+            "app_name": app_name,
+            "sign_on_mode": app.get("signOnMode"),
+            "available_roles": available_roles,
+            "role_count": len(available_roles),
+            "role_source": role_source,
+            **additional_info
+        }
+        
+        # Add helpful message based on what we found
+        if not available_roles:
+            result["message"] = (
+                "No roles found. This could mean: "
+                "(1) No roles have been imported/configured for this app, "
+                "(2) Roles are dynamically assigned without predefined options, or "
+                "(3) No users have been assigned yet to infer roles from."
+            )
+            if role_source == "aws":
+                result["message"] += " For AWS apps, you may need to import roles from AWS in the Okta admin UI."
+        else:
+            result["message"] = f"Found {len(available_roles)} available role(s) that can be assigned to users"
+        
+        return result
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error listing application roles: {str(e)}")
+        raise
+

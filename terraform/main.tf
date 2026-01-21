@@ -39,10 +39,10 @@ resource "aws_instance" "okta_mcp" {
     litellm_admin_secret_id         = aws_secretsmanager_secret.litellm_admin_key.id
     litellm_reader_secret_id        = aws_secretsmanager_secret.litellm_reader_key.id
     okta_api_base_url               = var.okta_api_base_url
-    okta_readonly_client_id         = var.okta_client_id       # lowercase
-    okta_readonly_scopes            = var.okta_scopes          # lowercase
-    okta_admin_client_id            = var.okta_admin_client_id # lowercase
-    okta_admin_scopes               = var.okta_admin_scopes    # lowercase
+    okta_readonly_client_id         = var.okta_client_id       
+    okta_readonly_scopes            = var.okta_scopes          
+    okta_admin_client_id            = var.okta_admin_client_id 
+    okta_admin_scopes               = var.okta_admin_scopes    
     docker_image                    = var.docker_image
     key_name                        = var.key_name
     okta_issuer                     = var.okta_issuer
@@ -72,11 +72,11 @@ data "aws_ami" "amazon_linux_2023" {
   }
 }
 
-# Reference existing EBS volume (no longer managed by Terraform)
+# Existing EBS volume
 data "aws_ebs_volume" "grafana_data" {
   filter {
     name   = "volume-id"
-    values = ["vol-006e61b5ad4941092"] # ✅ Your actual volume ID
+    values = ["vol-006e61b5ad4941092"] # ✅ Volume ID
   }
 }
 
