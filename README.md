@@ -5,15 +5,14 @@ A complete Model Context Protocol (MCP) server implementation for Okta managemen
 ## 🏗️ Architecture
 
 Roo/Claude Desktop (Local Machine)
-↓ StrongDM Tunnel or SSH (ports 9000/9001)
+↓
+StrongDM Tunnel
+↓
 EC2 Instance (AWS eu-west-3)
-├─ Auth Gateway Layer
-│ ├─ Admin Gateway (port 9001) - Okta OAuth + StrongDM auth
-│ └─ Readonly Gateway (port 9000) - Read-only access
-├─ MCP Server Layer
+├─ MCP Servers
 │ ├─ MCP Admin Server (port 8080) - Full read/write access
-│ ├─ MCP Readonly Server (port 8081) - Read-only access
-│ └─ LiteLLM Proxy (port 4000) - AWS Bedrock Claude Sonnet 4.5
+│ └─ MCP Readonly Server (port 8081) - Read-only access
+├─ LiteLLM Proxy (port 4000) - AWS Bedrock Claude Sonnet 4.5
 ├─ Observability Stack
 │ ├─ Grafana (port 3000) - Dashboards & visualization
 │ ├─ Loki (port 3100) - Log aggregation
@@ -149,7 +148,6 @@ terraform plan
 terraform apply
 
 Verify Deployment
-bash
 # Get instance IP
 terraform output instance_public_ip
 
@@ -162,62 +160,77 @@ docker ps
 # Should see all containers as (healthy):
 # - okta-mcp-admin
 # - okta-mcp-readonly
-# - okta-mcp-gateway-admin
-# - okta-mcp-gateway-readonly
 # - litellm-proxy
 # - grafana
 # - loki
 # - promtail
 # - watchtower
 
-Test Gateway Endpoints
-bash
-# Test admin gateway health
-curl http://localhost:9001/health
 
-# Test readonly gateway health
-curl http://localhost:9000/health
+Test Endpoints
+# Test admin MCP health
+curl http://localhost:8080/health
+
+# Test readonly MCP health
+curl http://localhost:8081/health
 
 # Test LiteLLM
 export LITELLM_KEY=$(terraform output -raw litellm_master_key)
 curl http://localhost:4000/v1/models \
   -H "Authorization: Bearer $LITELLM_KEY"
-5. Connect Roo/Claude Desktop
-Option A: Via StrongDM (Recommended)
 
-Configure StrongDM to proxy the gateway endpoints, then use the StrongDM URLs in your client config.
+Configure StrongDM
 
-Option B: Via SSH Tunnel
+Create two HTTP resources in StrongDM:
 
-bash
-ssh -L 9001:localhost:9001 -L 9000:localhost:9000 \
-  -i ~/.ssh/your-key.pem ec2-user@<INSTANCE_IP> -N
+Admin MCP Server:
+
+Hostname: 10.2.0.37 (or your EC2 private IP)
+
+Port: 8080
+
+Healthcheck Path: /health
+
+Subdomain: okta-mcp-admin
+
+Readonly MCP Server:
+
+Hostname: 10.2.0.37
+
+Port: 8081
+
+Healthcheck Path: /health
+
+Subdomain: okta-mcp-readonly
+
+6. Connect Roo/Claude Desktop
 Configure Roo (VS Code settings.json):
 
-json
 {
-  "roo-code.mcpServers": {
+  "roo-cline.mcpServers": {
     "okta-admin": {
       "transport": {
         "type": "sse",
-        "url": "http://localhost:9001/sse"
+        "url": "http://okta-mcp-admin.your-sdm-domain.network/sse"
       }
     },
     "okta-readonly": {
       "transport": {
         "type": "sse",
-        "url": "http://localhost:9000/sse"
+        "url": "http://okta-mcp-readonly.your-sdm-domain.network/sse"
       }
     }
   }
 }
 
+
 🔧 Configuration
 Okta OAuth 2.0 Setup
-Create three OAuth 2.0 API Services applications in Okta:
+Create two OAuth 2.0 API Services applications in Okta:
 
 1. Admin MCP Server App
 Grant Type: Client Credentials
+
 Scopes:
 
 okta.users.read
@@ -238,6 +251,7 @@ okta.logs.read
 
 2. Readonly MCP Server App
 Grant Type: Client Credentials
+
 Scopes:
 
 okta.users.read
@@ -250,21 +264,7 @@ okta.policies.read
 
 okta.logs.read
 
-3. Gateway OAuth App
-Grant Type: Authorization Code
-Scopes:
-
-openid
-
-profile
-
-email
-
-groups
-
-Redirect URI: https://okta-gateway.your-domain.com/oauth/callback
-
-Generate private keys for apps 1 & 2 and add to terraform.tfvars.
+Generate private keys for both apps and add to terraform.tfvars
 
 AWS Bedrock Setup
 Enable AWS Bedrock in eu-west-3
@@ -278,7 +278,6 @@ Ensure IAM role has bedrock:InvokeModel permission
 LiteLLM Configuration
 The deployment includes these Bedrock models (configured in litellm-config.yaml):
 
-text
 model_list:
   # Claude Sonnet 4.5 (primary)
   - model_name: bedrock-sonnet
@@ -303,22 +302,26 @@ model_list:
     litellm_params:
       model: bedrock/eu.mistral.mistral-large-2402-v1:0
       aws_region_name: eu-west-3
+
+
 🔐 Security
 Secrets in AWS Secrets Manager - No hardcoded credentials
 
 Private key JWT authentication - More secure than API tokens
 
-Gateway authentication layer - Okta OAuth + StrongDM integration
+StrongDM tunnel - Secure access with audit logging
 
 IAM role-based access - EC2 instance uses IAM for AWS services
 
 VPC isolation - EC2 in private subnet with NAT gateway
 
-Security groups - Restricted inbound access (SSH + gateway ports only)
+Security groups - Restricted inbound access (VPC range only)
 
 Data residency - All AI processing stays in AWS eu-west-3
 
 Auto-updates - Watchtower keeps containers current with security patches
+
+Health monitoring - /health endpoints for uptime monitoring
 
 📊 Monitoring
 Access Grafana Dashboards
@@ -346,44 +349,51 @@ bash
 docker ps
 
 # View detailed healthcheck logs
-docker inspect okta-mcp-admin | jq '..State.Health'
+docker inspect okta-mcp-admin | jq '.[].State.Health'
 
-# Test gateway endpoints
-curl http://localhost:9001/health
-curl http://localhost:9000/health
+# Test health endpoints
+curl http://localhost:8080/health
+curl http://localhost:8081/health
+
+# Via StrongDM
+curl http://okta-mcp-admin.your-sdm-domain.network/health
+
 🐛 Troubleshooting
 MCP Server Connection Failed
-Verify gateway is running: docker ps | grep gateway
+Verify MCP server is running: docker ps | grep okta-mcp
 
-Check gateway health: curl http://localhost:9001/health
+Check server health: curl http://localhost:8080/health
 
-View gateway logs: docker logs okta-mcp-gateway-admin
+View server logs: docker logs okta-mcp-admin
 
-Test MCP server directly: curl http://localhost:8080/sse
+Verify StrongDM tunnel is active
 
-Verify authentication headers are being passed
+Test SSE endpoint: curl http://localhost:8080/sse
 
 Container Shows "unhealthy"
-Check healthcheck logs:
-
 bash
-docker inspect okta-mcp-admin | jq '..State.Health.Log[-1]'
-Verify curl is installed in container:
+# Check healthcheck logs
+docker inspect okta-mcp-admin | jq '.[].State.Health.Log[-1]'
 
-bash
-docker exec okta-mcp-admin which curl
-Test healthcheck command manually:
+# Verify health endpoint responds
+docker exec okta-mcp-admin curl -f http://localhost:8080/health
 
-bash
-docker exec okta-mcp-admin curl -f http://localhost:8080/sse
+# Restart container if needed
+docker restart okta-mcp-admin
+
 Watchtower Not Updating Images
-Check Watchtower logs: docker logs watchtower
+bash
+# Check Watchtower logs
+docker logs watchtower
 
-Verify containers have label: docker inspect okta-mcp-admin | grep watchtower.enable
+# Verify containers have label
+docker inspect okta-mcp-admin | grep watchtower.enable
 
-Manually trigger update: docker restart watchtower
+# Manually trigger update
+docker restart watchtower
 
-Check Docker Hub for new images: docker pull blackstaa/okta-mcp-server:latest
+# Check Docker Hub for new images
+docker pull blackstaa/okta-mcp-server:latest
 
 LiteLLM Bedrock Errors
 Error: "Not subscribed to Bedrock model"
@@ -401,18 +411,43 @@ Verify model access enabled in Bedrock console
 Confirm correct AWS region (eu-west-3)
 
 Okta Authentication Failed
-Verify credentials in Secrets Manager:
-
 bash
+# Verify credentials in Secrets Manager
 aws secretsmanager get-secret-value --secret-id okta-mcp-admin-key
-Check private key format (must include \n for newlines)
 
-Verify OAuth scopes in Okta application
+# Check private key format (must include \n for newlines)
+# Verify OAuth scopes in Okta application
 
-Test OAuth token generation:
-
-bash
+# Test OAuth token generation
 docker logs okta-mcp-admin | grep "OAuth"
+
+StrongDM Healthcheck Failing
+bash
+# Verify health endpoint works locally
+curl http://localhost:8080/health
+
+# Check StrongDM configuration
+# - Healthcheck Path should be: /health
+# - Port should match: 8080 or 8081
+# - Security group allows traffic from VPC range (10.2.0.0/16)
+
+# View MCP server logs
+docker logs okta-mcp-admin --tail 50
+
+# Pull latest images
+docker pull blackstaa/okta-mcp-server:latest
+docker pull blackstaa/okta-mcp-gateway:latest
+
+# Restart services
+cd /opt/okta-litellm
+docker compose down
+docker compose up -d
+
+# Verify all containers healthy
+docker ps
+Update Infrastructure
+bash
+
 🔄 Updates and Maintenance
 Auto-Updates via Watchtower
 Watchtower automatically checks for new Docker images every 5 minutes and updates containers with the label com.centurylinklabs.watchtower.enable=true.
@@ -420,8 +455,6 @@ Watchtower automatically checks for new Docker images every 5 minutes and update
 Monitored images:
 
 blackstaa/okta-mcp-server:latest (admin + readonly servers)
-
-blackstaa/okta-mcp-gateway:latest (admin + readonly gateways)
 
 To deploy updates:
 
@@ -437,17 +470,13 @@ ssh -i ~/.ssh/your-key.pem ec2-user@<INSTANCE_IP>
 
 # Pull latest images
 docker pull blackstaa/okta-mcp-server:latest
-docker pull blackstaa/okta-mcp-gateway:latest
 
 # Restart services
 cd /opt/okta-litellm
-docker compose down
-docker compose up -d
+docker-compose down
+docker-compose up -d
 
-# Verify all containers healthy
-docker ps
-Update Infrastructure
-bash
+
 # Make changes to Terraform files
 terraform plan
 terraform apply
@@ -456,7 +485,6 @@ terraform apply
 terraform taint aws_instance.okta_mcp
 terraform apply
 📁 Project Structure
-text
 .
 ├── terraform/
 │   ├── main.tf                    # Main infrastructure
@@ -468,19 +496,16 @@ text
 │   ├── variables.tf               # Input variables
 │   └── terraform.tfvars           # Your configuration (gitignored)
 ├── src/
-│   ├── okta_mcp_server/
-│   │   ├── server.py              # MCP server entrypoint
-│   │   ├── oauth_jwt_client.py    # Okta OAuth client
-│   │   └── tools/                 # MCP tool implementations
-│   │       ├── users/
-│   │       │   ├── users.py       # User read operations
-│   │       │   └── users_admin.py # User write + attribute search
-│   │       ├── groups/            # Group operations
-│   │       ├── applications/      # App operations
-│   │       └── policies/          # Policy operations
-│   └── gateway/
-│       ├── gateway.py             # FastAPI auth gateway
-│       └── Dockerfile             # Gateway container image
+│   └── okta_mcp_server/
+│       ├── server.py              # MCP server entrypoint
+│       ├── oauth_jwt_client.py    # Okta OAuth client
+│       └── tools/                 # MCP tool implementations
+│           ├── users/
+│           │   ├── users.py       # User read operations
+│           │   └── users_admin.py # User write + attribute search
+│           ├── groups/            # Group operations
+│           ├── applications/      # App operations
+│           └── policies/          # Policy operations
 ├── Dockerfile                     # MCP server container image
 ├── docker-compose.yml             # Service orchestration (in user-data.sh)
 ├── user-data.sh                   # EC2 initialization script
@@ -488,34 +513,31 @@ text
 ├── loki-config.yaml               # Loki log aggregation config
 ├── promtail-config.yaml           # Promtail log collection config
 └── README.md                      # This file
-💰 Cost Estimate
-AWS Resources (eu-west-3):
 
-EC2 t3.medium: ~$30/month
 
-NAT Gateway: ~$32/month
+## 💰 Cost Estimate
 
-EBS storage (30GB): ~$3/month
+**AWS Resources (eu-west-3):**
+- EC2 t3.medium: ~$30/month
+- NAT Gateway: ~$32/month
+- EBS storage (30GB): ~$3/month
+- Secrets Manager (2 secrets): ~$1/month
+- Data transfer: Variable (~$5-10/month)
 
-Secrets Manager (5 secrets): ~$2/month
+**AWS Bedrock Claude Sonnet 4.5:** Pay-per-use
+- Input: $3 per million tokens
+- Cached input: $0.30 per million tokens (90% discount)
+- Output: $15 per million tokens
 
-Data transfer: Variable (~$5-10/month)
+**Infrastructure Base:** ~$71-76/month
 
-AWS Bedrock Claude Sonnet 4.5: Pay-per-use
+**With Prompt Caching + MCP Filtering:**
+- Light use (5 queries/day): ~**$72-77/month** (minimal Bedrock cost)
+- Moderate use (20 queries/day): ~**$76-81/month** (+$5 Bedrock)
+- Heavy use (100 queries/day): ~**$95-100/month** (+$24 Bedrock)
 
-Input: $3 per million tokens
+**Note:** Prompt caching reduces token costs by ~90% for system prompts and tool definitions. MCP tool filtering further reduces context size. Most costs come from infrastructure, not AI usage.
 
-Output: $15 per million tokens
-
-Total: ~$72-77/month + Bedrock usage
-
-Typical usage costs:
-
-Light use (100k tokens/month): ~$75/month
-
-Moderate use (1M tokens/month): ~$90/month
-
-Heavy use (10M tokens/month): ~$200/month
 
 🤝 Contributing
 Fork the repository
