@@ -113,8 +113,6 @@ resource "aws_iam_role_policy" "secrets_manager_access" {
           aws_secretsmanager_secret.litellm_master_key.arn,
           aws_secretsmanager_secret.litellm_admin_key.arn,
           aws_secretsmanager_secret.litellm_reader_key.arn,
-          data.aws_secretsmanager_secret.gateway_session_secret.arn,
-          data.aws_secretsmanager_secret.gateway_internal_auth_token.arn
         ]
 
       }

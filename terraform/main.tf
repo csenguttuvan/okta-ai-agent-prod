@@ -45,11 +45,7 @@ resource "aws_instance" "okta_mcp" {
     okta_admin_scopes               = var.okta_admin_scopes    # lowercase
     docker_image                    = var.docker_image
     key_name                        = var.key_name
-    okta_gateway_client_id          = var.okta_gateway_client_id
     okta_issuer                     = var.okta_issuer
-    gateway_redirect_uri            = var.gateway_redirect_uri
-    gateway_session_secret_id       = var.gateway_session_secret_id
-    gateway_internal_auth_secret_id = var.gateway_internal_auth_secret_id
 
   }))
 

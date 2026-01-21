@@ -116,21 +116,6 @@ LITELLM_READER_KEY=$(aws secretsmanager get-secret-value \
   --output text)
 echo "✅ LiteLLM reader team key retrieved"
 
-
-GATEWAY_SESSION_SECRET=$(aws secretsmanager get-secret-value \
-  --secret-id ${gateway_session_secret_id} \
-  --region ${aws_region} \
-  --query SecretString \
-  --output text)
-echo "✅ Gateway session secret retrieved"
-
-GATEWAY_INTERNAL_AUTH_TOKEN=$(aws secretsmanager get-secret-value \
-  --secret-id ${gateway_internal_auth_secret_id} \
-  --region ${aws_region} \
-  --query SecretString \
-  --output text)
-echo "✅ Gateway internal auth token retrieved"
-
 # Create .env file
 cat > .env << EOF
 LITELLM_MASTER_KEY=$LITELLM_MASTER_KEY
@@ -143,39 +128,9 @@ OKTA_READONLY_CLIENT_ID=${okta_readonly_client_id}  # ✅ CORRECT
 OKTA_READONLY_SCOPES=${okta_readonly_scopes}       
 OKTA_LOG_LEVEL=INFO
 DOCKER_IMAGE=${docker_image}
-GATEWAY_SESSION_SECRET=$GATEWAY_SESSION_SECRET
-GATEWAY_INTERNAL_AUTH_TOKEN=$GATEWAY_INTERNAL_AUTH_TOKEN
 EOF
 
 chmod 600 .env
-
-# Create .env.gateway.readonly file
-cat > .env.gateway.readonly << EOF
-OKTA_CLIENT_ID=${okta_gateway_client_id}
-OKTA_ISSUER=${okta_issuer}
-GATEWAY_PORT=9000
-SESSION_SECRET=$GATEWAY_SESSION_SECRET
-REDIRECT_URI=${gateway_redirect_uri}
-INTERNAL_AUTH_TOKEN=$GATEWAY_INTERNAL_AUTH_TOKEN
-ACCESS_LEVEL=readonly
-MCP_READONLY_URL=http://127.0.0.1:8081
-EOF
-
-chmod 600 .env.gateway.readonly
-
-# Create .env.gateway.admin file
-cat > .env.gateway.admin << EOF
-OKTA_CLIENT_ID=${okta_gateway_client_id}
-OKTA_ISSUER=${okta_issuer}
-GATEWAY_PORT=9001
-SESSION_SECRET=$GATEWAY_SESSION_SECRET
-REDIRECT_URI=${gateway_redirect_uri}
-INTERNAL_AUTH_TOKEN=$GATEWAY_INTERNAL_AUTH_TOKEN
-ACCESS_LEVEL=admin
-MCP_ADMIN_URL=http://127.0.0.1:8080
-EOF
-
-chmod 600 .env.gateway.admin
 
 
 # Create Loki data directories with correct permissions
@@ -567,34 +522,6 @@ services:
       - logging
     restart: unless-stopped
 
-  okta-mcp-gateway-readonly:
-    image: blackstaa/okta-mcp-gateway:latest
-    container_name: okta-mcp-gateway-readonly
-    network_mode: "host"
-    env_file: .env.gateway.readonly
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:9000/health | head -c 1 > /dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  okta-mcp-gateway-admin:
-    image: blackstaa/okta-mcp-gateway:latest
-    container_name: okta-mcp-gateway-admin
-    network_mode: "host"
-    env_file: .env.gateway.admin
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:9001/health | head -c 1 > /dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-  
   redis:
     image: redis:7-alpine
     container_name: litellm-redis
@@ -620,7 +547,6 @@ model_list:
       max_tokens: 1200
       
       
-
   # Claude 4.5 Haiku (fast, cheap)
   - model_name: bedrock-haiku
     litellm_params:
@@ -630,7 +556,7 @@ model_list:
       
 
   # Llama 3.1 70B (open source)
-  - model_name: bedrock-llama
+  - model_name: bedrock-llamater
     litellm_params:
       model: bedrock/eu.meta.llama3-1-3b-instruct-v1:0
       aws_region_name: ${aws_region}

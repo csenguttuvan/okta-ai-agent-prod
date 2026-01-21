@@ -121,6 +121,16 @@ def main():
 
         # Create the SSE app
         import uvicorn
+        from starlette.applications import Starlette
+        from starlette.routing import Route, Mount
+        from starlette.responses import JSONResponse, Response
+
+        # ✅ Add health endpoint (handles both GET and HEAD)
+        async def health_check(request):
+            """Healthcheck endpoint for StrongDM/load balancers"""
+            if request.method == "HEAD":
+                return Response(status_code=200)
+            return JSONResponse({"status": "healthy", "service": "okta-mcp-admin"})
 
         # ✅ FIXED: Context middleware with proper header extraction
         class CallerContextMiddleware:
@@ -168,8 +178,17 @@ def main():
                     await self.app(scope, receive, send)
 
         
-        starlette_app = mcp.sse_app()
-        app_with_middleware = CallerContextMiddleware(starlette_app)
+        # ✅ Create combined app with health endpoint + MCP SSE
+        mcp_sse_app = mcp.sse_app()
+        
+        # Create wrapper app with health route
+        routes = [
+            Route("/health", health_check, methods=["GET"]),
+            Mount("/", app=mcp_sse_app),  # Mount MCP app at root
+        ]
+        
+        combined_app = Starlette(routes=routes)
+        app_with_middleware = CallerContextMiddleware(combined_app)
 
         config = uvicorn.Config(
             app_with_middleware,
@@ -190,3 +209,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
