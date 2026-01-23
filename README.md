@@ -1,9 +1,10 @@
-# Okta MCP Server with AWS Infrastructure
+## Okta MCP Server with AWS Infrastructure
 
 A complete Model Context Protocol (MCP) server implementation for Okta management, deployed on AWS with LiteLLM proxy for Claude Sonnet 4.5 integration via AWS Bedrock.
 
 ## 🏗️ Architecture
 
+```mermaid
 flowchart LR
 
 %% Client side
@@ -48,14 +49,11 @@ subgraph AWS["AWS (eu-west-3) - EC2 Instance"]
   MCPAdmin --> Promtail
   MCPRO --> Promtail
   LiteLLM --> Promtail
+
+  %% Notes (keep inside diagram)
+  Bedrock -. "Inference stays in AWS (eu-west-3)\nPrompts not used for training" .- Bedrock
 end
 
-
-  %% Notes
-  Bedrock -. "Inference stays in AWS (eu-west-3)\nPrompts not used for training" .- Bedrock
-
-
-**Data Privacy:** All AI inference happens within AWS Bedrock in eu-west-3. Your prompts never leave AWS and are not used for model training.
 
 ## ✨ Features
 
