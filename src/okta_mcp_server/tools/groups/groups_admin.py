@@ -228,25 +228,52 @@ def add_user_to_group(
     user_id: str,
     ctx: Context | None = None
 ) -> dict:
-    """Add a user to a group (requires okta.groups.manage scope)."""
+    """Add a user to a group (requires okta.groups.manage scope).
+    
+    Only ACTIVE users can be added to groups.
+    """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Adding user {user_id} to group {group_id}")
-
+    
     client = get_client()
+    
     try:
+        # Import validation function
+        from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+        
+        # Validate user is ACTIVE
+        is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+        
+        if not is_active:
+            logger.error(f"[caller={caller}] ❌ Cannot add user: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "user_id": user_id,
+                "user_status": user.get("status"),
+                "message": "Only ACTIVE users can be added to groups"
+            }
+        
         client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
-        logger.info(f"[caller={caller}] Added user {user_id} to group {group_id}")
+        logger.info(f"[caller={caller}] ✅ Added user {user_id} to group {group_id}")
         logger.info(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=success")
-        return {"message": "User added to group successfully"}
-
+        
+        return {
+            "success": True,
+            "message": "User added to group successfully",
+            "user_id": user_id,
+            "user_status": "ACTIVE"
+        }
+        
     except PermissionError as e:
-        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
         logger.error(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
         raise
     except Exception as e:
-        logger.error(f"[caller={caller}] Error adding user to group: {str(e)}")
+        logger.error(f"[caller={caller}] ❌ Error adding user to group: {str(e)}")
         logger.error(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
         raise
+
 
 
 @mcp.tool()
@@ -255,22 +282,49 @@ def remove_user_from_group(
     user_id: str,
     ctx: Context | None = None
 ) -> dict:
-    """Remove a user from a group (requires okta.groups.manage scope)."""
+    """Remove a user from a group (requires okta.groups.manage scope).
+    
+    Only ACTIVE users can be removed from groups.
+    """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Removing user {user_id} from group {group_id}")
-
+    
     client = get_client()
+    
     try:
+        # Import validation function
+        from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+        
+        # Validate user is ACTIVE
+        is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+        
+        if not is_active:
+            logger.error(f"[caller={caller}] ❌ Cannot remove user: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "user_id": user_id,
+                "user_status": user.get("status"),
+                "message": "Only ACTIVE users can be removed from groups"
+            }
+        
         client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
-        logger.info(f"[caller={caller}] Removed user {user_id} from group {group_id}")
-        return {"message": "User removed from group successfully"}
-
+        logger.info(f"[caller={caller}] ✅ Removed user {user_id} from group {group_id}")
+        
+        return {
+            "success": True,
+            "message": "User removed from group successfully",
+            "user_id": user_id,
+            "user_status": "ACTIVE"
+        }
+        
     except PermissionError as e:
-        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
         raise
     except Exception as e:
-        logger.error(f"[caller={caller}] Error removing user from group: {str(e)}")
+        logger.error(f"[caller={caller}] ❌ Error removing user from group: {str(e)}")
         raise
+
 
 
 @mcp.tool()
@@ -280,38 +334,62 @@ def remove_users_from_group(
     ctx: Context | None = None
 ) -> dict:
     """Remove multiple users from a group in a single operation.
-
+    
+    Only ACTIVE users will be removed. Non-active users will be skipped.
+    
     Args:
         group_id: The Okta group ID
         user_ids: List of Okta user IDs to remove from the group
-
+        
     Returns:
-        Dictionary with removed count and results
+        Dictionary with removed count, skipped count, and results
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Batch removing {len(user_ids)} users from group {group_id}")
-
+    
     client = get_client()
+    
+    # Import validation function
+    from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+    
     results = []
     failed = []
-
+    skipped_inactive = []
+    
     for user_id in user_ids:
         try:
+            # Validate user is ACTIVE
+            is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+            
+            if not is_active:
+                skipped_inactive.append({
+                    "user_id": user_id,
+                    "status": user.get("status"),
+                    "email": user.get("profile", {}).get("email"),
+                    "reason": error_msg
+                })
+                logger.warning(f"[caller={caller}] ⏭️ Skipped inactive user {user_id} (status: {user.get('status')})")
+                continue
+            
             client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
             results.append({"user_id": user_id, "status": "removed"})
-            logger.info(f"[caller={caller}] Removed user {user_id} from group {group_id}")
+            logger.info(f"[caller={caller}] ✅ Removed user {user_id} from group {group_id}")
             logger.info(f"tool=remove_users_from_group group_id={group_id} user_id={user_id} result=success")
-
+            
         except Exception as e:
             failed.append({"user_id": user_id, "error": str(e)})
-            logger.error(f"[caller={caller}] Failed to remove user {user_id}: {str(e)}")
+            logger.error(f"[caller={caller}] ❌ Failed to remove user {user_id}: {str(e)}")
             logger.error(f"tool=remove_users_from_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
-
+    
     return {
         "success": True,
         "total": len(user_ids),
         "removed": len(results),
+        "skipped_inactive": len(skipped_inactive),
         "failed": len(failed),
         "results": results,
-        "failures": failed if failed else None
+        "skipped_users": skipped_inactive if skipped_inactive else None,
+        "failures": failed if failed else None,
+        "message": f"Removed {len(results)} users. Skipped {len(skipped_inactive)} inactive users."
     }
+

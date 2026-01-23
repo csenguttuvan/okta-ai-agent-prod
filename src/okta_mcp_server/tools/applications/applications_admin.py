@@ -168,34 +168,62 @@ def assign_user_to_application(
     user_id: str = ""
 ) -> Dict[str, Any]:
     """Assign a user to an application.
-
+    
+    Only ACTIVE users can be assigned to applications.
+    
     Args:
         app_id: The Okta application ID
         user_id: The Okta user ID
-
+        
     Returns:
         Dict with assignment details
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Assigning user {user_id} to application {app_id}")
-
+    
     if not app_id or not user_id:
         logger.error(f"[caller={caller}] app_id and user_id are required")
         raise ValueError("app_id and user_id are required")
-
+    
     try:
         client = get_client()
+        
+        # Import validation function
+        from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+        
+        # Validate user is ACTIVE
+        is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+        
+        if not is_active:
+            logger.error(f"[caller={caller}] ❌ Cannot assign user: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "user_id": user_id,
+                "user_status": user.get("status"),
+                "message": "Only ACTIVE users can be assigned to applications"
+            }
+        
         assignment = client.post(
             f"/api/v1/apps/{app_id}/users",
             data={"id": user_id}
         )
-        logger.info(f"[caller={caller}] Assigned user {user_id} to application {app_id}")
-        return assignment
+        
+        logger.info(f"[caller={caller}] ✅ Assigned user {user_id} to application {app_id}")
+        
+        return {
+            "success": True,
+            "assignment": assignment,
+            "user_id": user_id,
+            "user_status": "ACTIVE",
+            "message": "User assigned to application successfully"
+        }
+        
     except PermissionError as e:
-        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
         raise
     except Exception as e:
-        logger.error(f"[caller={caller}] Error assigning user to application: {str(e)}")
+        logger.error(f"[caller={caller}] ❌ Error assigning user to application: {str(e)}")
         raise
 
 @mcp.tool()
@@ -416,18 +444,14 @@ def batch_assign_users_to_application(
 ) -> Dict[str, Any]:
     """Assign multiple users to an application in batch.
     
+    Only ACTIVE users will be assigned. Non-active users will be skipped.
+    
     Args:
         app_id: The Okta application ID
         user_ids: List of Okta user IDs to assign to the application
-    
+        
     Returns:
         Dict with batch assignment results including success/failure counts
-    
-    Example:
-        batch_assign_users_to_application(
-            app_id="0oa123abc",
-            user_ids=["00u111", "00u222", "00u333"]
-        )
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Batch assigning {len(user_ids)} users to application {app_id}")
@@ -439,15 +463,34 @@ def batch_assign_users_to_application(
     
     try:
         client = get_client()
+        
+        # Import validation function
+        from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+        
         results = []
         errors = []
+        skipped_inactive = []
         
         for user_id in user_ids:
             try:
+                # Validate user is ACTIVE
+                is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+                
+                if not is_active:
+                    skipped_inactive.append({
+                        "user_id": user_id,
+                        "status": user.get("status"),
+                        "email": user.get("profile", {}).get("email"),
+                        "reason": error_msg
+                    })
+                    logger.warning(f"[caller={caller}] ⏭️ Skipped inactive user {user_id} (status: {user.get('status')})")
+                    continue
+                
                 assignment = client.post(
                     f"/api/v1/apps/{app_id}/users",
                     data={"id": user_id}
                 )
+                
                 results.append({
                     "user_id": user_id,
                     "status": "assigned",
@@ -457,7 +500,6 @@ def batch_assign_users_to_application(
                 
             except Exception as e:
                 error_msg = str(e)
-                # Check if already assigned (409 conflict)
                 if "already exists" in error_msg.lower() or "409" in error_msg:
                     results.append({
                         "user_id": user_id,
@@ -474,16 +516,18 @@ def batch_assign_users_to_application(
         assigned_count = len([r for r in results if r["status"] == "assigned"])
         already_assigned_count = len([r for r in results if r["status"] == "already_assigned"])
         
-        logger.info(f"[caller={caller}] ✅ Completed: {assigned_count} assigned, {already_assigned_count} already assigned, {len(errors)} errors")
+        logger.info(f"[caller={caller}] ✅ Completed: {assigned_count} assigned, {already_assigned_count} already assigned, {len(skipped_inactive)} skipped, {len(errors)} errors")
         
         return {
             "success": True,
-            "message": f"Assigned {assigned_count} users to application",
+            "message": f"Assigned {assigned_count} users. Skipped {len(skipped_inactive)} inactive users.",
             "total_requested": len(user_ids),
             "assigned": assigned_count,
             "already_assigned": already_assigned_count,
+            "skipped_inactive": len(skipped_inactive),
             "errors": len(errors),
             "results": results,
+            "skipped_users": skipped_inactive if skipped_inactive else None,
             "error_details": errors if errors else None,
             "app_id": app_id
         }
@@ -498,7 +542,8 @@ def batch_assign_users_to_application(
             "error": str(e),
             "total_requested": len(user_ids),
             "assigned": 0
-        } 
+        }
+
     
 @mcp.tool()
 def assign_user_to_application_with_role(
@@ -510,33 +555,19 @@ def assign_user_to_application_with_role(
 ) -> Dict[str, Any]:
     """Assign a user to an application with a specific role or profile attributes.
     
+    Only ACTIVE users can be assigned to applications.
+    
     This is particularly useful for applications like AWS where you need to assign
     users to specific IAM roles imported from AWS via SAML.
     
     Args:
         app_id: The Okta application ID
         user_id: The Okta user ID or login email
-        role: The role to assign (e.g., for AWS: "arn:aws:iam::123456789012:role/AdminRole,arn:aws:iam::123456789012:saml-provider/OktaProvider")
+        role: The role to assign (e.g., for AWS: "arn:aws:iam::123456789012:role/AdminRole,...")
         profile: Dict of additional profile attributes to set for this app assignment
-                 Example: {"samlRoles": ["role1", "role2"], "customAttribute": "value"}
         
     Returns:
         Dict with assignment details including the assigned role
-        
-    Examples:
-        # Assign user to AWS app with specific IAM role
-        assign_user_to_application_with_role(
-            app_id="0oa123abc",
-            user_id="john.doe@example.com",
-            role="arn:aws:iam::123456789012:role/AdminRole,arn:aws:iam::123456789012:saml-provider/OktaProvider"
-        )
-        
-        # Assign with custom profile attributes
-        assign_user_to_application_with_role(
-            app_id="0oa123abc",
-            user_id="jane.doe@example.com",
-            profile={"department": "Engineering", "customRole": "Developer"}
-        )
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Assigning user {user_id} to app {app_id} with role: {role}")
@@ -549,6 +580,22 @@ def assign_user_to_application_with_role(
     try:
         client = get_client()
         
+        # Import validation function
+        from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+        
+        # Validate user is ACTIVE
+        is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+        
+        if not is_active:
+            logger.error(f"[caller={caller}] ❌ Cannot assign user: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "user_id": user_id,
+                "user_status": user.get("status"),
+                "message": "Only ACTIVE users can be assigned to applications"
+            }
+        
         # Build the assignment payload
         assignment_data = {
             "id": user_id
@@ -560,12 +607,9 @@ def assign_user_to_application_with_role(
             
             # Add role to profile if provided
             if role:
-                # For AWS apps, the role field is typically "samlRoles" (array)
-                # But some apps use "role" (string). We'll support both patterns.
                 if isinstance(role, list):
                     profile_data["samlRoles"] = role
                 else:
-                    # Single role - try to detect if it's AWS format
                     if "arn:aws:iam::" in role:
                         profile_data["samlRoles"] = [role]
                     else:
@@ -586,6 +630,7 @@ def assign_user_to_application_with_role(
         return {
             "success": True,
             "user_id": user_id,
+            "user_status": "ACTIVE",
             "app_id": app_id,
             "assignment_id": assignment.get("id"),
             "profile": assigned_profile,
@@ -600,10 +645,10 @@ def assign_user_to_application_with_role(
         error_msg = str(e)
         logger.error(f"[caller={caller}] ❌ Error assigning user with role: {error_msg}")
         
-        # Provide helpful error message for common issues
         if "400" in error_msg:
             raise ValueError(f"Invalid role or profile format. Check app profile schema: {error_msg}")
         raise
+
 
 
 

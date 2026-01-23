@@ -262,6 +262,8 @@ def reset_user_mfa_and_password(
 ) -> dict:
     """Reset user's MFA factors and password, returning a temporary password.
     
+    Only ACTIVE users can have their MFA and password reset.
+    
     This tool performs two operations:
     1. Resets all MFA factors for the user (requires re-enrollment)
     2. Expires password and generates a temporary password
@@ -280,6 +282,20 @@ def reset_user_mfa_and_password(
     logger.info(f"[caller={caller}] Resetting MFA and password for user: {user_id}")
     
     client = get_client()
+    
+    # Validate user is ACTIVE
+    is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+    
+    if not is_active:
+        logger.error(f"[caller={caller}] ❌ Cannot reset credentials: {error_msg}")
+        return {
+            "success": False,
+            "user_id": user_id,
+            "user_status": user.get("status"),
+            "error": error_msg,
+            "message": "Only ACTIVE users can have their MFA and password reset"
+        }
+    
     results = {
         "user_id": user_id,
         "success": False,
@@ -323,6 +339,7 @@ def reset_user_mfa_and_password(
             return {
                 "success": True,
                 "user_id": user_id,
+                "user_status": "ACTIVE",
                 "temp_password": results["temp_password"],
                 "message": "User MFA and password reset successfully. Provide the temporary password to the user.",
                 "mfa_reset": results["mfa_reset"],
@@ -348,3 +365,4 @@ def reset_user_mfa_and_password(
             "error": str(e),
             "partial_results": results
         }
+

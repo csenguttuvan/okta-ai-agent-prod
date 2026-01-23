@@ -97,7 +97,7 @@ EC2 Instance (AWS eu-west-3)
 - **Terraform-managed AWS deployment** (VPC, EC2, Secrets Manager, IAM)
 - **Docker-based services** with Watchtower auto-updates
 - **Dual MCP servers:** Admin (full access) and Readonly (safe queries)
-- **Auth gateway layer:** Okta OAuth + StrongDM integration
+- **StrongDM:** StrongDM integration
 - **LiteLLM API Gateway:** OpenAI-compatible API for AWS Bedrock
 - **Complete observability:** Grafana + Loki + Promtail logging stack
 - **Automated deployment** via user-data script
