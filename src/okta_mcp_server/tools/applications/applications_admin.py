@@ -1087,3 +1087,95 @@ def check_role_exists_on_application(
     except Exception as e:
         logger.error(f"[caller={caller}] ❌ Error checking role existence: {str(e)}")
         raise
+
+@mcp.tool()
+def delete_application(
+    app_id: str,
+    confirm_deletion: bool = False,
+    ctx: Context | None = None
+) -> Dict[str, Any]:
+    """Delete an Okta application (requires okta.apps.manage scope).
+    
+    ⚠️ DESTRUCTIVE OPERATION - All user assignments and configurations will be lost.
+    
+    Args:
+        app_id: The Okta application ID
+        confirm_deletion: Must be True to proceed (prevents accidental deletion)
+        ctx: Optional context
+        
+    Returns:
+        Dict with operation status
+        
+    Warning:
+        - All user and group assignments will be removed
+        - All application configurations will be lost
+        - This operation cannot be undone
+    """
+    caller = get_caller_email()
+    
+    # Require explicit confirmation
+    if not confirm_deletion:
+        client = get_client()
+        
+        try:
+            # Get app info to show what will be deleted
+            app = client.get(f"/api/v1/apps/{app_id}")
+            app_name = app.get("label")
+            app_status = app.get("status")
+            
+            return {
+                "success": False,
+                "error": "Deletion not confirmed",
+                "message": "Set confirm_deletion=True to proceed with application deletion",
+                "app_id": app_id,
+                "app_name": app_name,
+                "app_status": app_status,
+                "warning": f"⚠️ This will permanently delete the application '{app_name}' and all its assignments",
+                "note": "Consider deactivating the app first to test impact before permanent deletion"
+            }
+        except Exception:
+            return {
+                "success": False,
+                "error": "Deletion not confirmed",
+                "message": "Set confirm_deletion=True to proceed with application deletion",
+                "app_id": app_id,
+                "warning": "⚠️ This is a permanent operation that cannot be undone"
+            }
+    
+    logger.warning(f"[caller={caller}] ⚠️ DESTRUCTIVE: Deleting application {app_id}")
+    
+    client = get_client()
+    
+    try:
+        # Get app info for audit log
+        app = client.get(f"/api/v1/apps/{app_id}")
+        app_name = app.get("label")
+        
+        # Enhanced audit log
+        logger.error(
+            f"AUDIT: Application deletion | "
+            f"caller={caller} | "
+            f"app_name={app_name} | "
+            f"app_id={app_id}"
+        )
+        
+        # Delete application
+        client.delete(f"/api/v1/apps/{app_id}")
+        
+        logger.warning(f"[caller={caller}] ⚠️ DELETED application: {app_name}")
+        
+        return {
+            "success": True,
+            "message": f"Application '{app_name}' deleted successfully",
+            "app_id": app_id,
+            "app_name": app_name,
+            "deleted_by": caller,
+            "warning": "This operation is permanent and cannot be undone"
+        }
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error deleting application: {str(e)}")
+        raise

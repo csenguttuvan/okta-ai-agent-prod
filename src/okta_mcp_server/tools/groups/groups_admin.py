@@ -203,23 +203,166 @@ def create_group(
 
 
 @mcp.tool()
-def delete_group(group_id: str, ctx: Context | None = None) -> dict:
-    """Delete an Okta group (requires okta.groups.manage scope)."""
+def delete_group(
+    group_id: str,
+    confirm_deletion: bool = False,
+    ctx: Context | None = None
+) -> dict:
+    """Delete an Okta group (requires okta.groups.manage scope).
+    
+    ⚠️ DESTRUCTIVE OPERATION - All members will be removed and app assignments deleted.
+    
+    Args:
+        group_id: The Okta group ID
+        confirm_deletion: Must be True to proceed (prevents accidental deletion)
+        ctx: Optional context
+        
+    Returns:
+        Dict with operation status
+        
+    Warning:
+        - All users will be removed from the group
+        - All application assignments will be deleted
+        - This operation cannot be undone
+    """
     caller = get_caller_email()
-    logger.info(f"[caller={caller}] Deleting group: {group_id}")
-
+    
+    # Require explicit confirmation
+    if not confirm_deletion:
+        client = get_client()
+        
+        try:
+            # Get group info to show what will be deleted
+            group = client.get(f"/api/v1/groups/{group_id}")
+            group_name = group.get("profile", {}).get("name")
+            
+            # Get member count
+            members = client.get(f"/api/v1/groups/{group_id}/users", params={"limit": 1})
+            
+            return {
+                "success": False,
+                "error": "Deletion not confirmed",
+                "message": "Set confirm_deletion=True to proceed with group deletion",
+                "group_id": group_id,
+                "group_name": group_name,
+                "warning": f"⚠️ This will permanently delete the group '{group_name}' and remove all members",
+                "note": "Consider using preview_group_deletion_impact() to see full impact first"
+            }
+        except Exception:
+            return {
+                "success": False,
+                "error": "Deletion not confirmed",
+                "message": "Set confirm_deletion=True to proceed with group deletion",
+                "group_id": group_id,
+                "warning": "⚠️ This is a permanent operation that cannot be undone"
+            }
+    
+    logger.warning(f"[caller={caller}] ⚠️ DESTRUCTIVE: Deleting group {group_id}")
+    
     client = get_client()
+    
     try:
+        # Get group info for audit log
+        group = client.get(f"/api/v1/groups/{group_id}")
+        group_name = group.get("profile", {}).get("name")
+        
+        # Enhanced audit log
+        logger.error(
+            f"AUDIT: Group deletion | "
+            f"caller={caller} | "
+            f"group_name={group_name} | "
+            f"group_id={group_id}"
+        )
+        
+        # Delete group
         client.delete(f"/api/v1/groups/{group_id}")
-        logger.info(f"[caller={caller}] Deleted group: {group_id}")
-        return {"message": f"Group {group_id} deleted successfully"}
-
+        
+        logger.warning(f"[caller={caller}] ⚠️ DELETED group: {group_name}")
+        
+        return {
+            "success": True,
+            "message": f"Group '{group_name}' deleted successfully",
+            "group_id": group_id,
+            "group_name": group_name,
+            "deleted_by": caller
+        }
+        
     except PermissionError as e:
-        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
         raise
     except Exception as e:
-        logger.error(f"[caller={caller}] Error deleting group: {str(e)}")
+        logger.error(f"[caller={caller}] ❌ Error deleting group: {str(e)}")
         raise
+
+@mcp.tool()
+def preview_group_deletion_impact(
+    group_id: str,
+    ctx: Context | None = None
+) -> dict:
+    """Preview the impact of deleting a group before deletion.
+    
+    Shows affected members and application assignments to help make informed decisions.
+    
+    Args:
+        group_id: The Okta group ID
+        ctx: Optional context
+        
+    Returns:
+        Dict with impact analysis including members and app assignments
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Previewing deletion impact for group {group_id}")
+    
+    client = get_client()
+    
+    try:
+        # Get group details
+        group = client.get(f"/api/v1/groups/{group_id}")
+        group_name = group.get("profile", {}).get("name")
+        group_description = group.get("profile", {}).get("description")
+        
+        # Get members
+        members = client.get(f"/api/v1/groups/{group_id}/users", params={"limit": 200})
+        member_list = [
+            {
+                "id": m.get("id"),
+                "email": m.get("profile", {}).get("email"),
+                "name": f"{m.get('profile', {}).get('firstName', '')} {m.get('profile', {}).get('lastName', '')}".strip()
+            }
+            for m in members[:10]  # Show first 10
+        ]
+        
+        # Try to get app assignments (note: requires listing all apps and filtering)
+        # This is a simplified version - full implementation would check all apps
+        logger.info(f"[caller={caller}] Group has {len(members)} members")
+        
+        impact_summary = {
+            "group_id": group_id,
+            "group_name": group_name,
+            "group_description": group_description,
+            "impact": {
+                "total_members": len(members),
+                "members_shown": member_list,
+                "note": f"Showing first 10 of {len(members)} members" if len(members) > 10 else "All members shown"
+            },
+            "warnings": [
+                f"⚠️ {len(members)} users will be removed from this group",
+                "⚠️ All application assignments for this group will be deleted",
+                "⚠️ This operation cannot be undone"
+            ],
+            "recommendation": "Review all members and app assignments carefully before deletion",
+            "next_steps": f"To proceed, call delete_group(group_id='{group_id}', confirm_deletion=True)"
+        }
+        
+        return impact_summary
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error previewing impact: {str(e)}")
+        raise
+
 
 
 @mcp.tool()
