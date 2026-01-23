@@ -5,49 +5,51 @@ A complete Model Context Protocol (MCP) server implementation for Okta managemen
 ## 🏗️ Architecture
 
 flowchart LR
-  %% Client side
-  subgraph LOCAL["Local machine"]
-    Roo["Roo / Claude Desktop"]
-    SDM["StrongDM Client\n(local tunnel)"]
-    Roo --> SDM
+
+%% Client side
+subgraph LOCAL["Local machine"]
+  Roo["Roo / Claude Desktop"]
+  SDM["StrongDM Client\n(local tunnel)"]
+  Roo --> SDM
+end
+
+%% AWS side
+subgraph AWS["AWS (eu-west-3) - EC2 Instance"]
+  direction TB
+
+  subgraph MCP["Okta MCP Servers"]
+    MCPAdmin["MCP Admin Server\n:8080 (read/write)"]
+    MCPRO["MCP Readonly Server\n:8081 (read-only)"]
   end
 
-  %% AWS side
-  subgraph AWS["AWS (eu-west-3) - EC2 Instance"]
-    direction TB
-
-    subgraph MCP["Okta MCP Servers"]
-      MCPAdmin["MCP Admin Server\n:8080 (read/write)"]
-      MCPRO["MCP Readonly Server\n:8081 (read-only)"]
-    end
-
-    subgraph LLM["LLM Gateway"]
-      LiteLLM["LiteLLM Proxy\n:4000"]
-      Bedrock["AWS Bedrock\n(Claude Sonnet 4.5)"]
-      LiteLLM --> Bedrock
-    end
-
-    subgraph OBS["Observability"]
-      Promtail["Promtail\n(log shipper)"]
-      Loki["Loki\n:3100 (logs)"]
-      Grafana["Grafana\n:3000 (dashboards)"]
-      Promtail --> Loki --> Grafana
-    end
-
-    subgraph AUTO["Auto-update"]
-      Watchtower["Watchtower\n(auto-updates every 5 min)"]
-    end
-
-    %% Traffic flows
-    SDM --> LiteLLM
-    SDM --> MCPAdmin
-    SDM --> MCPRO
-
-    %% Logs
-    MCPAdmin --> Promtail
-    MCPRO --> Promtail
-    LiteLLM --> Promtail
+  subgraph LLM["LLM Gateway"]
+    LiteLLM["LiteLLM Proxy\n:4000"]
+    Bedrock["AWS Bedrock\n(Claude Sonnet 4.5)"]
+    LiteLLM --> Bedrock
   end
+
+  subgraph OBS["Observability"]
+    Promtail["Promtail\n(log shipper)"]
+    Loki["Loki\n:3100 (logs)"]
+    Grafana["Grafana\n:3000 (dashboards)"]
+    Promtail --> Loki --> Grafana
+  end
+
+  subgraph AUTO["Auto-update"]
+    Watchtower["Watchtower\n(auto-updates every 5 min)"]
+  end
+
+  %% Traffic flows
+  SDM --> LiteLLM
+  SDM --> MCPAdmin
+  SDM --> MCPRO
+
+  %% Logs
+  MCPAdmin --> Promtail
+  MCPRO --> Promtail
+  LiteLLM --> Promtail
+end
+
 
   %% Notes
   Bedrock -. "Inference stays in AWS (eu-west-3)\nPrompts not used for training" .- Bedrock
