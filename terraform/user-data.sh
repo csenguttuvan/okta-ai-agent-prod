@@ -138,249 +138,8 @@ mkdir -p /opt/okta-litellm/{loki-data,loki-wal}
 chown -R 10001:10001 /opt/okta-litellm/{loki-data,loki-wal}
 chmod -R 755 /opt/okta-litellm/{loki-data,loki-wal}
 
-cat > custom_callbacks.py << 'EOF'
-# custom_callbacks.py
-from __future__ import annotations
-from typing import Any, Dict, List, Literal, Optional, Set
-
-from litellm.integrations.custom_logger import CustomLogger
-from litellm.proxy.proxy_server import DualCache, UserAPIKeyAuth
 
 
-def _extract_tool_name(tool: Any) -> str:
-    """Extract tool name from tool definition"""
-    if not isinstance(tool, dict):
-        return ""
-    fn = tool.get("function") or {}
-    if isinstance(fn, dict):
-        n = fn.get("name")
-        return n if isinstance(n, str) else ""
-    return ""
-
-
-def _is_okta_mcp(name: str) -> bool:
-    """Check if tool is an Okta MCP tool"""
-    return name.startswith("mcp--okta")
-
-
-def _get_relevant_categories(user_message: str) -> Set[str]:
-    """Determine which tool categories are needed based on user query"""
-    msg = user_message.lower()
-    categories = set()
-    
-    # User-related queries
-    if any(w in msg for w in ["user", "person", "people", "profile", "login", "email", "activate", "deactivate", "create user", "delete user", "division", "department", "attribute"]):
-        categories.add("user")
-    
-    # Group-related queries
-    if any(w in msg for w in ["group", "groups", "team", "teams", "member", "members"]):
-        categories.add("group")
-    
-    # Application-related queries
-    if any(w in msg for w in ["app", "application", "applications", "saml", "oidc", "sso", "assign", "list application", "find application", "get application", "create application", "app roles", "roles"]):
-        categories.add("app")
-    
-    # Policy-related queries
-    if any(w in msg for w in ["policy", "policies", "rule", "mfa", "password", "sign", "signon"]):
-        categories.add("policy")
-    
-    # Log-related queries
-    if any(w in msg for w in ["log", "logs", "audit", "event", "activity"]):
-        categories.add("log")
-    
-    # Safety: if no categories matched, return common ones
-    if not categories:
-        print(f"[MCP FILTER WARNING] No categories matched for: {msg[:100]}")
-        categories = {"user", "group", "app"}
-    
-    return categories
-
-
-def _tool_matches_category(tool_name: str, categories: Set[str]) -> bool:
-    """Check if tool belongs to needed categories"""
-    name_lower = tool_name.lower()
-    
-    # Always include check_permissions (lightweight and useful)
-    if "checkpermissions" in name_lower:
-        return True
-    
-    # User tools
-    if "user" in categories:
-        if "user" in name_lower:
-            return True
-    
-    # Group tools
-    if "group" in categories:
-        if "group" in name_lower:
-            return True
-    
-    # Application tools
-    if "app" in categories:
-        if "app" in name_lower:
-            return True
-    
-    # Policy tools
-    if "policy" in categories:
-        if "polic" in name_lower or "rule" in name_lower:
-            return True
-    
-    # Log tools
-    if "log" in categories:
-        if "log" in name_lower:
-            return True
-    
-    return False
-
-
-def _slim_tool(t: Dict[str, Any]) -> Dict[str, Any]:
-    """Minimal but usable: name + required params with descriptions"""
-    fn = t.get("function", {})
-    params = fn.get("parameters", {})
-    props = params.get("properties", {})
-    required = params.get("required", [])
-    
-    # Include ALL required properties with FULL type and description
-    minimal_props = {}
-    for key in required:
-        if key in props:
-            minimal_props[key] = {
-                "type": props[key].get("type", "string"),
-                "description": props[key].get("description", "")  # ← Keep FULL description
-            }
-    
-    return {
-        "type": "function",
-        "function": {
-            "name": fn.get("name", ""),
-            "description": fn.get("description", ""),  # ← Keep FULL function description
-            "parameters": {
-                "type": "object",
-                "properties": minimal_props,
-                "required": required
-            }
-        }
-    }
-
-
-
-class McpOnlyToolsHandler(CustomLogger):
-    async def async_pre_call_hook(
-        self,
-        user_api_key_dict: UserAPIKeyAuth,
-        cache: DualCache,
-        data: dict,
-        call_type: Literal[
-            "completion", "text_completion", "embeddings",
-            "image_generation", "moderation", "audio_transcription",
-        ],
-    ):
-        try:
-            # Extract user message to determine context
-            messages = data.get("messages", [])
-            user_msg = ""
-            all_messages = []  # Track all recent messages
-            
-            # Get last 3 user messages for better context
-            for msg in reversed(messages):
-                if msg.get("role") == "user":
-                    content = msg.get("content", "")
-                    if isinstance(content, str):
-                        all_messages.append(content)
-                    elif isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                text = block.get("text", "")
-                                if "<task>" in text:
-                                    import re
-                                    match = re.search(r'<task>(.*?)</task>', text, re.DOTALL)
-                                    if match:
-                                        all_messages.append(match.group(1).strip())
-                                else:
-                                    all_messages.append(text)
-                    
-                    if len(all_messages) >= 3:  # Check last 3 user messages
-                        break
-            
-            # Use the most recent message for primary context
-            user_msg = all_messages[0] if all_messages else ""
-            
-            # Get relevant categories from current message
-            relevant_categories = _get_relevant_categories(user_msg)
-            
-            # If this is a follow-up (multiple messages), check ALL recent messages
-            if len(all_messages) > 1:
-                for old_msg in all_messages[1:]:
-                    old_categories = _get_relevant_categories(old_msg)
-                    relevant_categories.update(old_categories)  # Merge categories
-                print(f"[MCP FILTER] Multi-turn conversation - expanded categories: {relevant_categories}")
-            
-            # Extract tools from request
-            direct_tools = data.get("tools")
-            optional_params = data.get("optional_params") if isinstance(data.get("optional_params"), dict) else None
-            optional_tools = optional_params.get("tools") if optional_params else None
-
-            container: Optional[str] = None
-            tools: Optional[List[Dict[str, Any]]] = None
-
-            if isinstance(direct_tools, list):
-                container = "data.tools"
-                tools = direct_tools
-            elif isinstance(optional_tools, list):
-                container = "data.optional_params.tools"
-                tools = optional_tools
-
-            if not tools:
-                return data
-
-            # Filter: 1) Keep Roo tools, 2) Keep relevant Okta MCP tools, 3) Slim schema
-            kept = []
-            for t in tools:
-                name = _extract_tool_name(t)
-                
-                # Always keep non-Okta tools (Roo's built-in tools like attempt_completion)
-                if not _is_okta_mcp(name):
-                    kept.append(t)  # Keep as-is, don't slim
-                    continue
-                
-                # For Okta MCP tools, filter by category and slim
-                if _tool_matches_category(name, relevant_categories):
-                    kept.append(_slim_tool(t))
-
-            # SAFETY: If we filtered ALL Okta tools but have some, keep all Okta tools as fallback
-            okta_tool_count = sum(1 for t in kept if _is_okta_mcp(_extract_tool_name(t)))
-            if okta_tool_count == 0 and len(tools) > 0:
-                print(f"[MCP FILTER WARNING] Kept 0 Okta tools - keeping all Okta tools as fallback")
-                for t in tools:
-                    name = _extract_tool_name(t)
-                    if name and _is_okta_mcp(name):
-                        kept.append(_slim_tool(t))
-
-            # Debug log
-            print(f"[MCP FILTER] Query categories: {relevant_categories}")
-            print(f"[MCP FILTER] Incoming: {len(tools)} | Kept: {len(kept)} | container={container}")
-
-            # Update the request with filtered tools
-            if container == "data.tools":
-                data["tools"] = kept
-                if not kept:
-                    data.pop("tool_choice", None)
-            else:
-                optional_params["tools"] = kept
-                if not kept:
-                    optional_params.pop("tool_choice", None)
-
-            return data
-        
-        except Exception as e:
-            print(f"[MCP FILTER ERROR] {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return data
-
-
-proxy_handler_instance = McpOnlyToolsHandler()
-
-EOF
 
 # Create docker-compose.yml
 cat > docker-compose.yml << 'COMPOSE'
@@ -546,7 +305,6 @@ model_list:
       aws_region_name: ${aws_region}
       max_tokens: 1200
       
-      
   # Claude 4.5 Haiku (fast, cheap)
   - model_name: bedrock-haiku
     litellm_params:
@@ -554,7 +312,6 @@ model_list:
       aws_region_name: ${aws_region}
       max_tokens: 4000
       
-
   # Llama 3.1 70B (open source)
   - model_name: bedrock-llamater
     litellm_params:
@@ -562,28 +319,34 @@ model_list:
       aws_region_name: ${aws_region}
       max_tokens: 4000
       
-  
   # Mistral Large
   - model_name: bedrock-mistral
     litellm_params:
       model: bedrock/eu.mistral.mistral-large-2402-v1:0
       aws_region_name: ${aws_region}
       max_tokens: 8000
-      
+
 litellm_settings:
   master_key: \$LITELLM_MASTER_KEY
   drop_params: true
   modify_params: true
   success_callback: ["stdout"]
   failure_callback: ["stdout"]
-  set_verbose: true
+  set_verbose: false
   callbacks: custom_callbacks.proxy_handler_instance
+  
+  # Redis caching
   cache: true
   cache_params:
     type: "redis"
     host: "localhost"
     port: 6379
-    ttl: 3600  # 1 hour cache    
+    ttl: 3600
+  
+  # Token optimization
+  default_max_tokens: 1500
+  num_retries: 2
+  request_timeout: 30
 
 teams:
   - team_id: okta_admins
@@ -607,6 +370,376 @@ general_settings:
   json_logs: true
   disable_spend_logs: false
   store_prompts_in_spend_logs: true
+  max_input_tokens: 50000
+  stream: true
+  enable_compression: true
+EOF
+
+
+sudo tee /opt/okta-litellm/custom_callbacks.py << 'EOF'
+# custom_callbacks.py - Token-optimized MCP tool filtering
+from __future__ import annotations
+from typing import Any, Dict, List, Literal, Optional, Set
+from litellm.integrations.custom_logger import CustomLogger
+from litellm.proxy.proxy_server import DualCache, UserAPIKeyAuth
+import re
+import copy
+
+def _extract_tool_name(tool: Any) -> str:
+    if not isinstance(tool, dict):
+        return ""
+    fn = tool.get("function") or {}
+    if isinstance(fn, dict):
+        n = fn.get("name")
+        return n if isinstance(n, str) else ""
+    return ""
+
+def _is_okta_mcp(name: str) -> bool:
+    return name.startswith("mcp--okta") or name.startswith("mcp__okta")
+
+def _prune_conversation(messages: list, max_history: int = 6) -> list:
+    if len(messages) <= max_history + 1:
+        return messages
+    pruned = []
+    if messages and messages[0].get("role") == "system":
+        pruned.append(messages[0])
+        start_idx = 1
+    else:
+        start_idx = 0
+    recent_messages = messages[-max_history:]
+    pruned.extend(recent_messages)
+    tokens_saved = len(messages) - len(pruned)
+    if tokens_saved > 0:
+        print(f"[MCP] 🔪 Pruned {tokens_saved} old messages (kept {len(pruned)})")
+    return pruned
+
+def _normalize_plural(text: str) -> str:
+    """Normalize plural forms to singular for consistent matching"""
+    replacements = {
+        "groups": "group",
+        "users": "user",
+        "apps": "app",
+        "applications": "application",
+        "policies": "policy",
+        "rules": "rule",
+        "members": "member",
+        "factors": "factor",
+        "roles": "role"
+    }
+    for plural, singular in replacements.items():
+        text = text.replace(plural, singular)
+    return text
+
+def _extract_latest_user_query(messages: list) -> str:
+    """Extract ONLY the most recent user query (multi-turn safe)"""
+    
+    last_user_msg = None
+    last_tool_msg = None
+    
+    for msg in reversed(messages):
+        if msg.get("role") == "tool" and last_tool_msg is None:
+            last_tool_msg = msg
+        if msg.get("role") == "user" and last_user_msg is None:
+            last_user_msg = msg
+        if (last_tool_msg or last_user_msg):
+            break
+    
+    # Priority 1: Check tool message for <feedback>
+    if last_tool_msg:
+        content = last_tool_msg.get("content", "")
+        if isinstance(content, str) and "<feedback>" in content:
+            feedback_match = re.search(r'<feedback>(.*?)</feedback>', content, flags=re.DOTALL | re.IGNORECASE)
+            if feedback_match:
+                query = feedback_match.group(1).strip()
+                query = re.sub(r'<[^>]+>', '', query)
+                if len(query) > 3:
+                    print(f"[MCP] 📋 Extracted from <feedback>: {query[:60]}")
+                    return query.lower()
+    
+    # Priority 2: Extract from last user message
+    if last_user_msg:
+        content = last_user_msg.get("content", "")
+        
+        # Handle list format (Roo's standard format)
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text", "")
+                    
+                    # Try ALL possible tag formats
+                    for tag in ["user_message", "task", "user_query", "query", "instruction"]:
+                        pattern = f'<{tag}>(.*?)</{tag}>'
+                        match = re.search(pattern, text, flags=re.DOTALL | re.IGNORECASE)
+                        if match:
+                            query = match.group(1).strip()
+                            query = re.sub(r'<[^>]+>', '', query)
+                            if len(query) > 3:
+                                print(f"[MCP] 📋 Extracted from <{tag}>: {query[:60]}")
+                                return query.lower()
+        
+        # Handle string format
+        elif isinstance(content, str):
+            # Try ALL possible tag formats
+            for tag in ["user_message", "task", "user_query", "query", "instruction"]:
+                pattern = f'<{tag}>(.*?)</{tag}>'
+                match = re.search(pattern, content, flags=re.DOTALL | re.IGNORECASE)
+                if match:
+                    query = match.group(1).strip()
+                    query = re.sub(r'<[^>]+>', '', query)
+                    if len(query) > 3:
+                        print(f"[MCP] 📋 Extracted from <{tag}>: {query[:60]}")
+                        return query.lower()
+            
+            # Fallback: strip environment details and extract first meaningful line
+            cleaned = re.sub(r'<environment_details>.*?</environment_details>', '', content, flags=re.DOTALL | re.IGNORECASE)
+            lines = cleaned.split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith('<') and '>' in line:
+                    tag_text = re.sub(r'<[^>]+>', '', line)
+                    if len(tag_text.strip()) > 3:
+                        print(f"[MCP] 📋 Extracted from inline tag: {tag_text[:60]}")
+                        return tag_text.strip().lower()
+                if line.startswith('#'):
+                    continue
+                if len(line) > 10:
+                    print(f"[MCP] 📋 Extracted from plain text: {line[:60]}")
+                    return line.lower()
+    
+    print("[MCP] ⚠️ No query extracted, using defaults")
+    return ""
+
+def _get_relevant_tools(messages: list) -> Set[str]:
+    msg = _extract_latest_user_query(messages)
+    msg = _normalize_plural(msg)  # Normalize plurals to singular
+    
+    tools = set()
+    def add_tool(base_name):
+        tools.add(f"mcp--okta-admin--{base_name}")
+        tools.add(f"mcp--okta___admin--{base_name}")
+    
+    add_tool("check_permissions")
+    
+    if not msg or len(msg) < 3:
+        add_tool("list_users")
+        add_tool("list_groups")
+        add_tool("list_group_users")
+        add_tool("find_user")
+        return tools
+    
+    attribute_keywords = ["division", "department", "title", "location", "manager", "costcenter", "cost center", "office", "city", "country", "org", "organization", "team", "role", "level", "grade", "profile", "attribute", "property", "field"]
+    has_attribute_query = any(kw in msg for kw in attribute_keywords)
+    
+    # USERS
+    if "list" in msg and "user" in msg and "group" not in msg and "app" not in msg:
+        add_tool("list_users")
+    if any(w in msg for w in ["search", "find", "lookup", "get", "show", "who has", "user with"]):
+        if "user" in msg or has_attribute_query:
+            add_tool("find_user")
+            add_tool("search_users_fuzzy")
+            add_tool("get_user")
+            if has_attribute_query:
+                add_tool("search_users_by_attribute")
+    if "create" in msg and "user" in msg and "group" not in msg:
+        add_tool("create_user")
+    if ("update" in msg or "modify" in msg or "change" in msg) and "user" in msg:
+        add_tool("update_user")
+        add_tool("get_user")
+    if "deactivate" in msg and "user" in msg:
+        add_tool("deactivate_user")
+        add_tool("find_user")
+    if "delete" in msg and "user" in msg and "group" not in msg:
+        add_tool("delete_user")
+        add_tool("find_user")
+    if any(w in msg for w in ["reset", "unlock", "mfa", "password", "2fa", "factor"]):
+        if "user" in msg or "mfa" in msg or "password" in msg:
+            add_tool("reset_user_mfa_and_password")
+            add_tool("find_user")
+    
+    # GROUPS
+    if "list" in msg and "group" in msg and any(w in msg for w in ["user", "member", "in the group", "in group"]):
+        add_tool("list_group_users")
+        add_tool("search_groups_fuzzy")
+        add_tool("get_group")
+    elif "list" in msg and "group" in msg:
+        add_tool("list_groups")
+    if any(w in msg for w in ["search", "find", "lookup", "get", "show"]) and "group" in msg:
+        add_tool("search_groups_fuzzy")
+        add_tool("get_group")
+        add_tool("list_groups")
+    if "create" in msg and "group" in msg:
+        add_tool("create_group")
+        if has_attribute_query or any(w in msg for w in ["add all", "add user", "with", "who have"]):
+            add_tool("search_users_by_attribute")
+            add_tool("add_users_to_group_by_attribute")
+            add_tool("list_group_users")
+    if ("update" in msg or "modify" in msg or "change" in msg) and "group" in msg:
+        add_tool("update_group")
+        add_tool("get_group")
+    if "delete" in msg and "group" in msg:
+        add_tool("delete_group")
+        add_tool("search_groups_fuzzy")
+        add_tool("get_group")
+        if any(w in msg for w in ["empty", "member", "clear"]):
+            add_tool("list_group_users")
+            add_tool("remove_users_from_group")
+    if any(w in msg for w in ["add", "assign", "join"]) and "group" in msg:
+        add_tool("add_user_to_group")
+        add_tool("add_users_to_group")
+        if has_attribute_query or any(w in msg for w in ["who have", "with", "all user"]):
+            add_tool("add_users_to_group_by_attribute")
+            add_tool("search_users_by_attribute")
+            add_tool("list_group_users")
+    if ("remove" in msg or "unassign" in msg) and "group" in msg and "user" in msg:
+        add_tool("remove_user_from_group")
+        add_tool("remove_users_from_group")
+        add_tool("list_group_users")
+        add_tool("search_groups_fuzzy")
+        if has_attribute_query:
+            add_tool("remove_users_from_group_by_attribute")
+    
+    # APPLICATIONS
+    if "list" in msg and ("app" in msg or "application" in msg):
+        add_tool("list_applications")
+    if any(w in msg for w in ["get", "show", "find"]) and ("app" in msg or "application" in msg):
+        add_tool("get_application")
+    if "create" in msg and ("app" in msg or "application" in msg):
+        add_tool("create_application")
+    if "delete" in msg and ("app" in msg or "application" in msg):
+        add_tool("delete_application")
+        add_tool("get_application")
+    if "list" in msg and ("app" in msg or "application" in msg):
+        if "user" in msg:
+            add_tool("list_application_users")
+        if "group" in msg:
+            add_tool("list_application_groups")
+    if any(w in msg for w in ["assign", "add", "grant"]) and ("app" in msg or "application" in msg):
+        if "group" in msg:
+            add_tool("assign_group_to_application")
+            add_tool("get_application")
+        if "user" in msg:
+            add_tool("assign_user_to_application")
+            add_tool("batch_assign_users_to_application")
+            if any(w in msg for w in ["role", "arn", "aws", "saml"]):
+                add_tool("assign_user_to_application_with_role")
+                add_tool("list_application_available_roles")
+                add_tool("check_role_exists_on_application")
+            if has_attribute_query:
+                add_tool("search_users_by_attribute")
+    if any(w in msg for w in ["unassign", "remove"]) and ("app" in msg or "application" in msg):
+        if "user" in msg:
+            add_tool("list_application_users")
+            if has_attribute_query:
+                add_tool("unassign_users_from_application_by_attribute")
+    if ("update" in msg or "change" in msg) and ("role" in msg or "arn" in msg) and ("app" in msg or "application" in msg):
+        add_tool("update_user_application_role")
+        add_tool("list_application_available_roles")
+    if any(w in msg for w in ["list", "show", "available"]) and "role" in msg and ("app" in msg or "application" in msg):
+        add_tool("list_application_available_roles")
+        add_tool("get_application")
+    if "check" in msg and "role" in msg:
+        add_tool("check_role_exists_on_application")
+    
+    # POLICIES
+    if "delete" in msg and "policy" in msg:
+        add_tool("delete_policy")
+    if "activate" in msg and "policy" in msg:
+        add_tool("activate_policy")
+    if "deactivate" in msg and "policy" in msg:
+        add_tool("deactivate_policy")
+    if "rule" in msg and "policy" in msg:
+        if "create" in msg:
+            add_tool("create_policy_rule")
+        if "update" in msg or "modify" in msg:
+            add_tool("update_policy_rule")
+        if "delete" in msg:
+            add_tool("delete_policy_rule")
+        if "activate" in msg:
+            add_tool("activate_policy_rule")
+        if "deactivate" in msg:
+            add_tool("deactivate_policy_rule")
+    
+    # LOGS
+    if any(w in msg for w in ["log", "audit", "event", "activity"]):
+        add_tool("list_system_logs")
+    
+    # FALLBACK
+    if len(tools) == 1:
+        add_tool("list_users")
+        add_tool("list_groups")
+        add_tool("list_group_users")
+        add_tool("find_user")
+    
+    return tools
+
+def _ultra_slim_tool(t: Dict[str, Any]) -> Dict[str, Any]:
+    fn = t.get("function", {})
+    params = fn.get("parameters", {})
+    props = params.get("properties", {})
+    required = params.get("required", [])
+    minimal_props = {}
+    for key, prop in props.items():
+        desc = prop.get("description", "").split('.')[0].split('\n')[0][:60].strip()
+        minimal_props[key] = {"type": prop.get("type", "string"), "description": desc}
+        if prop.get("enum"):
+            minimal_props[key]["enum"] = prop["enum"][:]
+    func_desc = '.'.join(fn.get("description", "").split('.')[:2]).strip()
+    if func_desc and not func_desc.endswith('.'):
+        func_desc += '.'
+    return {"type": "function", "function": {"name": fn.get("name", ""), "description": func_desc, "parameters": {"type": "object", "properties": minimal_props, "required": required[:] if required else []}}}
+
+class McpOnlyToolsHandler(CustomLogger):
+    async def async_pre_call_hook(self, user_api_key_dict: UserAPIKeyAuth, cache: DualCache, data: dict, call_type: Literal["completion", "text_completion", "embeddings", "image_generation", "moderation", "audio_transcription"]):
+        try:
+            messages = data.get("messages", [])
+            if not messages:
+                return data
+            messages = _prune_conversation(messages, max_history=6)
+            data["messages"] = messages
+            relevant_tools = _get_relevant_tools(messages)
+            data = copy.deepcopy(data)
+            direct_tools = data.get("tools")
+            optional_params = data.get("optional_params")
+            optional_tools = optional_params.get("tools") if isinstance(optional_params, dict) else None
+            container = None
+            tools = None
+            if isinstance(direct_tools, list):
+                container = "data.tools"
+                tools = direct_tools
+            elif isinstance(optional_tools, list):
+                container = "data.optional_params.tools"
+                tools = optional_tools
+            if not tools:
+                return data
+            kept = []
+            okta_count = 0
+            for t in tools:
+                name = _extract_tool_name(t)
+                if not _is_okta_mcp(name):
+                    kept.append(t)
+                    continue
+                if name in relevant_tools:
+                    kept.append(_ultra_slim_tool(t))
+                    okta_count += 1
+            query = _extract_latest_user_query(messages)
+            display_msg = query[:60] if query and len(query) > 5 else "unknown query"
+            print(f"[MCP] '{display_msg}...' | {len(tools)} → {len(kept)} ({okta_count} Okta)")
+            if container == "data.tools":
+                data["tools"] = kept
+            else:
+                optional_params["tools"] = kept
+            return data
+        except Exception as e:
+            print(f"[MCP ERROR] {e}")
+            import traceback
+            traceback.print_exc()
+            return data
+
+proxy_handler_instance = McpOnlyToolsHandler()
+
+
 EOF
 
 

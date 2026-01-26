@@ -2,57 +2,11 @@ from typing import Optional, List
 from loguru import logger
 from mcp.server.fastmcp import Context
 from difflib import get_close_matches
+import json
 
 from okta_mcp_server.context import get_caller_email, get_caller_groups
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
-
-
-@mcp.tool()
-def list_groups( 
-    limit: int = 100,  # ✅ Fixed: Always int
-    query: Optional[str] = None,
-    ctx: Context | None = None
-) -> dict:
-    """List Okta groups (requires groups.read scope)."""
-    caller = get_caller_email()
-
-    # Normalize query
-    if query in ("null", "", None):
-        query = None
-
-    # ✅ Normalize limit (handle string inputs from LLMs)
-    try:
-        limit_int = int(limit) if isinstance(limit, (str, int)) else 100
-    except (TypeError, ValueError):
-        limit_int = 100
-
-    logger.info(f"[caller={caller}] listing groups query={query}, limit={limit_int}")
-
-    client = get_client()
-    params = {"limit": limit_int}
-    if query:
-        params["q"] = query
-
-    groups = client.get("/api/v1/groups", params=params)
-    logger.info(f"[caller={caller}] Found {len(groups)} groups")
-
-    # Return clean list
-    simplified = [
-        {
-            "id": g.get("id"),
-            "name": (g.get("profile") or {}).get("name"),
-            "description": (g.get("profile") or {}).get("description"),
-            "type": g.get("type"),
-        }
-        for g in groups
-    ]
-
-    return {
-        "groups": simplified,
-        "count": len(simplified),
-        "query": query,
-    }
 
 
 @mcp.tool()
@@ -62,23 +16,24 @@ def search_groups_fuzzy(
     ctx: Context | None = None
 ) -> dict:
     """Fuzzy search Okta groups by name (handles typos and partial names).
-
+    
     This is more forgiving than list_groups:
+    - "corpit" matches "corp it", "corp it7", "corp-it"
     - "disciplew dev" can match "Disciples-dev"
     - Case-insensitive
-    - Also tries substring matches
+    - Also tries substring matches with space/hyphen normalization
     """
     caller = get_caller_email()
-
+    
     if search_term in ("null", None):
         search_term = ""
-
+    
     logger.info(f"[caller={caller}] Fuzzy searching groups: {search_term} limit={limit}")
-
+    
     client = get_client()
     try:
         groups = client.get("/api/v1/groups", params={"limit": limit})
-
+        
         if not search_term:
             logger.info(f"[caller={caller}] Empty search term, returning all {len(groups)} groups")
             return {
@@ -88,35 +43,72 @@ def search_groups_fuzzy(
                 "matched_names": [g["profile"]["name"] for g in groups],
                 "search_type": "all"
             }
-
+        
         names = [g["profile"]["name"] for g in groups]
-
-        # Fuzzy matches
-        fuzzy_names = get_close_matches(search_term, names, n=10, cutoff=0.4)
-
-        # Substring matches
+        
+        # Normalize function: remove spaces, hyphens, underscores for comparison
+        def normalize(s):
+            return s.lower().replace(" ", "").replace("-", "").replace("_", "")
+        
+        search_normalized = normalize(search_term)
         search_lower = search_term.lower()
-        substring_names = [name for name in names if search_lower in name.lower() and name not in fuzzy_names]
-
-        all_match_names = (fuzzy_names + substring_names)[:10]
-        matched = [g for g in groups if g["profile"]["name"] in all_match_names]
-
-        logger.info(f"[caller={caller}] Fuzzy group search found {len(matched)} matches for: {search_term}")
-
+        
+        matched_names = []
+        
+        # 1. Exact match (case-insensitive)
+        exact_matches = [name for name in names if name.lower() == search_lower]
+        matched_names.extend(exact_matches)
+        
+        # 2. Normalized substring match (handles "corpit" matching "corp it7")
+        normalized_matches = [
+            name for name in names 
+            if search_normalized in normalize(name) 
+            and name not in matched_names
+        ]
+        matched_names.extend(normalized_matches)
+        
+        # 3. Regular substring match (case-insensitive)
+        substring_matches = [
+            name for name in names 
+            if search_lower in name.lower() 
+            and name not in matched_names
+        ]
+        matched_names.extend(substring_matches)
+        
+        # 4. Fuzzy matches (for typos)
+        fuzzy_matches = get_close_matches(
+            search_term, 
+            [n for n in names if n not in matched_names], 
+            n=10, 
+            cutoff=0.4
+        )
+        matched_names.extend(fuzzy_matches)
+        
+        # Limit to top 10 results
+        matched_names = matched_names[:10]
+        matched = [g for g in groups if g["profile"]["name"] in matched_names]
+        
+        logger.info(
+            f"[caller={caller}] Fuzzy group search found {len(matched)} matches for: {search_term} | "
+            f"exact={len(exact_matches)}, normalized={len(normalized_matches)}, "
+            f"substring={len(substring_matches)}, fuzzy={len(fuzzy_matches)}"
+        )
+        
         return {
             "groups": matched,
             "count": len(matched),
             "search_term": search_term,
-            "matched_names": all_match_names,
+            "matched_names": matched_names,
             "search_type": "fuzzy"
         }
-
+    
     except PermissionError as e:
         logger.error(f"[caller={caller}] Permission denied in fuzzy group search: {str(e)}")
         raise
     except Exception as e:
         logger.error(f"[caller={caller}] Error in fuzzy group search: {str(e)}")
         raise
+
 
 
 @mcp.tool()
@@ -366,56 +358,108 @@ def preview_group_deletion_impact(
 
 
 @mcp.tool()
-def add_user_to_group(
+def add_users_to_group(
     group_id: str,
-    user_id: str,
+    user_ids: list[str] | str,  # ✅ Accept both list and string
     ctx: Context | None = None
 ) -> dict:
-    """Add a user to a group (requires okta.groups.manage scope).
+    """🚀 Add multiple users to a group in a single operation (requires okta.groups.manage scope).
     
-    Only ACTIVE users can be added to groups.
+    This is the MOST EFFICIENT way to add multiple users to a group. Use this instead of 
+    calling add_user_to_group multiple times.
+    
+    Args:
+        group_id: The Okta group ID
+        user_ids: List of Okta user IDs to add (can be Python list or JSON array string)
+        ctx: Optional context
+        
+    Returns:
+        Dict containing:
+            - success: Operation status
+            - total: Total users attempted
+            - added: Number successfully added
+            - skipped_inactive: Number of non-ACTIVE users skipped
+            - failed: Number of failures
+            - results: List of successfully added users
+            - skipped_users: List of skipped users with reasons
+            - failures: List of failed operations
+            
+    Note:
+        - Only ACTIVE users can be added to groups
+        - Users with status PASSWORD_EXPIRED, PROVISIONED, etc. will be skipped
+        - This operation is atomic per user (one failure doesn't stop others)
     """
     caller = get_caller_email()
-    logger.info(f"[caller={caller}] Adding user {user_id} to group {group_id}")
     
-    client = get_client()
-    
-    try:
-        # Import validation function
-        from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
-        
-        # Validate user is ACTIVE
-        is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
-        
-        if not is_active:
-            logger.error(f"[caller={caller}] ❌ Cannot add user: {error_msg}")
+    # ✅ Handle JSON string input from LLMs
+    if isinstance(user_ids, str):
+        try:
+            user_ids = json.loads(user_ids)
+            logger.info(f"[caller={caller}] Parsed user_ids from JSON string")
+        except json.JSONDecodeError as e:
+            logger.error(f"[caller={caller}] Invalid user_ids JSON: {e}")
             return {
                 "success": False,
-                "error": error_msg,
-                "user_id": user_id,
-                "user_status": user.get("status"),
-                "message": "Only ACTIVE users can be added to groups"
+                "error": f"Invalid user_ids format: expected list or JSON array string",
+                "provided_value": user_ids[:100]
             }
-        
-        client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
-        logger.info(f"[caller={caller}] ✅ Added user {user_id} to group {group_id}")
-        logger.info(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=success")
-        
+    
+    if not isinstance(user_ids, list):
         return {
-            "success": True,
-            "message": "User added to group successfully",
-            "user_id": user_id,
-            "user_status": "ACTIVE"
+            "success": False,
+            "error": f"user_ids must be a list, got: {type(user_ids).__name__}"
         }
-        
-    except PermissionError as e:
-        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
-        logger.error(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error adding user to group: {str(e)}")
-        logger.error(f"tool=add_user_to_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
-        raise
+    
+    logger.info(f"[caller={caller}] Batch adding {len(user_ids)} users to group: {group_id}")
+
+    client = get_client()
+    
+    results = []
+    failed = []
+    skipped_inactive = []
+    
+    for user_id in user_ids:
+        try:
+            # Get user status first
+            user = client.get(f"/api/v1/users/{user_id}")
+            
+            if user.get("status") != "ACTIVE":
+                skipped_inactive.append({
+                    "user_id": user_id,
+                    "status": user.get("status"),
+                    "email": user.get("profile", {}).get("email"),
+                    "reason": f"User {user.get('profile', {}).get('email')} has status '{user.get('status')}'. Only ACTIVE users can be modified."
+                })
+                logger.warning(f"[caller={caller}] ⏭️ Skipped inactive user {user_id} (status: {user.get('status')})")
+                continue
+            
+            # Add user to group
+            client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
+            
+            results.append({
+                "user_id": user_id,
+                "status": "added"
+            })
+            logger.info(f"[caller={caller}] ✅ Added user {user_id} to group")
+            
+        except Exception as e:
+            failed.append({
+                "user_id": user_id,
+                "error": str(e)
+            })
+            logger.error(f"[caller={caller}] ❌ Failed to add user {user_id}: {str(e)}")
+    
+    return {
+        "success": True,
+        "total": len(user_ids),
+        "added": len(results),
+        "skipped_inactive": len(skipped_inactive),
+        "failed": len(failed),
+        "results": results,
+        "skipped_users": skipped_inactive if skipped_inactive else None,
+        "failures": failed if failed else None,
+        "message": f"Added {len(results)} users. Skipped {len(skipped_inactive)} inactive users."
+    }
 
 
 
