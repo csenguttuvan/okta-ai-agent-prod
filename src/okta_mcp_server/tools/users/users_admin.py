@@ -41,8 +41,6 @@ def _validate_user_is_active(client, user_id: str, caller: str) -> tuple[bool, s
         return False, error_msg, {}
 
 
-
-
 @mcp.tool()
 def create_user(
     email: str,
@@ -89,10 +87,11 @@ def deactivate_user(
     """Deactivate an Okta user (requires okta.users.manage scope).
     
     ⚠️ DESTRUCTIVE OPERATION - User will lose access to all applications.
+    Automatically activates PROVISIONED users before deactivating (Okta requirement).
     
     Args:
         user_id: The Okta user ID or login email
-        confirm_deactivation: Must be True to proceed (prevents accidental deactivation)
+        confirm_deactivation: Must be True to proceed
         ctx: Optional context
         
     Returns:
@@ -100,44 +99,45 @@ def deactivate_user(
     """
     caller = get_caller_email()
     
-    # Require explicit confirmation
     if not confirm_deactivation:
         return {
             "success": False,
             "error": "Deactivation not confirmed",
-            "message": "Set confirm_deactivation=True to proceed with user deactivation",
-            "user_id": user_id,
-            "warning": "⚠️ This will immediately revoke user access to all applications"
+            "message": "Set confirm_deactivation=True to proceed"
         }
-    
-    logger.warning(f"[caller={caller}] ⚠️ DESTRUCTIVE: Deactivating user {user_id}")
     
     client = get_client()
     
     try:
-        # Get user info for logging
+        # Get current status
         user = client.get(f"/api/v1/users/{user_id}")
         user_email = user.get("profile", {}).get("email")
         user_status = user.get("status")
         
-        # Validate user is ACTIVE
-        if user_status != "ACTIVE":
+        # Handle PROVISIONED status (auto-activate first)
+        if user_status == "PROVISIONED":
+            logger.warning(f"[caller={caller}] User {user_email} is PROVISIONED, activating first...")
+            client.post(f"/api/v1/users/{user_id}/lifecycle/activate", params={"sendEmail": "false"}, data={})
+            logger.info(f"[caller={caller}] ✅ Auto-activated PROVISIONED user {user_email}")
+            # Status is now ACTIVE, proceed to deactivate
+        
+        elif user_status == "DEACTIVATED":
             return {
                 "success": False,
-                "error": f"User cannot be deactivated from status '{user_status}'",
+                "error": "User is already DEACTIVATED",
                 "user_id": user_id,
                 "user_email": user_email,
-                "current_status": user_status,
-                "message": "Only ACTIVE users can be deactivated"
+                "current_status": user_status
             }
         
-        # Enhanced audit log
-        logger.warning(
-            f"AUDIT: User deactivation | "
-            f"caller={caller} | "
-            f"target_user={user_email} | "
-            f"target_user_id={user_id}"
-        )
+        elif user_status != "ACTIVE":
+            return {
+                "success": False,
+                "error": f"Cannot deactivate user from status '{user_status}'",
+                "user_id": user_id,
+                "user_email": user_email,
+                "current_status": user_status
+            }
         
         # Deactivate user
         client.post(f"/api/v1/users/{user_id}/lifecycle/deactivate", data={})
@@ -150,16 +150,15 @@ def deactivate_user(
             "user_id": user_id,
             "user_email": user_email,
             "deactivated_by": caller,
-            "previous_status": "ACTIVE",
-            "new_status": "DEACTIVATED"
+            "previous_status": user_status,
+            "new_status": "DEACTIVATED",
+            "note": "Auto-activated from PROVISIONED before deactivating" if user_status == "PROVISIONED" else None
         }
         
-    except PermissionError as e:
-        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
-        raise
     except Exception as e:
         logger.error(f"[caller={caller}] ❌ Error deactivating user: {str(e)}")
         raise
+
 
 
 @mcp.tool()
@@ -336,22 +335,26 @@ def search_users_by_attribute(
     limit: int = 200,
     ctx: Context = None
 ) -> dict:
-    """Search users by profile attributes (e.g., department, division, title, location).
+    """Search users by any profile attribute like division, department, title, location, etc.
     
-    Supports filtering by any profile attribute:
-    - division: User's division (e.g., "Corp IT", "Engineering")
-    - department: Department name
-    - title: Job title
-    - location: Office location
-    - Any custom profile attribute
+    Common use cases:
+    - Search by division: attribute="division", value="Corp IT"
+    - Search by department: attribute="department", value="Engineering"
+    - Search by title: attribute="title", value="Manager"
+    - Search by location: attribute="location", value="New York"
+    - Search by any custom profile field
     
     Args:
-        attribute: Profile attribute name (e.g., 'division', 'department', 'title')
-        value: Attribute value to match
+        attribute: Profile attribute name (e.g., 'division', 'department', 'title', 'location')
+        value: Exact value to match (case-sensitive)
         limit: Maximum number of results (default: 200)
     
     Returns:
-        Dict with matching users
+        Dict with 'users' list and 'count'
+        
+    Example:
+        To find all users with division="Corp IT":
+        search_users_by_attribute(attribute="division", value="Corp IT")
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Searching users with {attribute}={value}")
@@ -697,6 +700,81 @@ def unassign_users_from_application_by_attribute(
             "error": str(e),
             "count": 0
         }
+
+
+@mcp.tool()
+def activate_user(
+    user_id: str,
+    send_email: bool = False,
+    ctx: Context = None
+) -> dict:
+    """Activate a user in PROVISIONED status (requires okta.users.manage scope).
+    
+    This allows activating users that were created but never completed signup.
+    Only works for users in PROVISIONED or STAGED status.
+    
+    Args:
+        user_id: The Okta user ID or login email
+        send_email: Whether to send activation email to user (default: False)
+        ctx: Optional context
+        
+    Returns:
+        Dict with operation status
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Activating user {user_id}")
+    
+    client = get_client()
+    
+    try:
+        # Get current status
+        user = client.get(f"/api/v1/users/{user_id}")
+        status = user.get("status")
+        email = user.get("profile", {}).get("email")
+        
+        if status == "ACTIVE":
+            return {
+                "success": False,
+                "error": "User is already ACTIVE",
+                "user_id": user_id,
+                "user_email": email,
+                "current_status": status
+            }
+        
+        if status not in ["PROVISIONED", "STAGED"]:
+            return {
+                "success": False,
+                "error": f"User cannot be activated from status '{status}'",
+                "user_id": user_id,
+                "user_email": email,
+                "current_status": status,
+                "message": "Only PROVISIONED or STAGED users can be activated"
+            }
+        
+        # Activate user
+        params = {"sendEmail": str(send_email).lower()}
+        client.post(f"/api/v1/users/{user_id}/lifecycle/activate", params=params, data={})
+        
+        logger.info(f"[caller={caller}] ✅ Activated user {email}")
+        
+        return {
+            "success": True,
+            "message": f"User {email} activated successfully",
+            "user_id": user_id,
+            "user_email": email,
+            "activated_by": caller,
+            "previous_status": status,
+            "new_status": "ACTIVE"
+        }
+        
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error activating user: {str(e)}")
+        raise
+
+
 
 @mcp.tool()
 def reactivate_user(

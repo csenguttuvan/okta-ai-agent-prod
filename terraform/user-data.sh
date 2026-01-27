@@ -385,6 +385,7 @@ from litellm.proxy.proxy_server import DualCache, UserAPIKeyAuth
 import re
 import copy
 
+
 def _extract_tool_name(tool: Any) -> str:
     if not isinstance(tool, dict):
         return ""
@@ -394,8 +395,10 @@ def _extract_tool_name(tool: Any) -> str:
         return n if isinstance(n, str) else ""
     return ""
 
+
 def _is_okta_mcp(name: str) -> bool:
     return name.startswith("mcp--okta") or name.startswith("mcp__okta")
+
 
 def _prune_conversation(messages: list, max_history: int = 6) -> list:
     if len(messages) <= max_history + 1:
@@ -412,6 +415,7 @@ def _prune_conversation(messages: list, max_history: int = 6) -> list:
     if tokens_saved > 0:
         print(f"[MCP] 🔪 Pruned {tokens_saved} old messages (kept {len(pruned)})")
     return pruned
+
 
 def _normalize_plural(text: str) -> str:
     """Normalize plural forms to singular for consistent matching"""
@@ -430,8 +434,15 @@ def _normalize_plural(text: str) -> str:
         text = text.replace(plural, singular)
     return text
 
+
 def _extract_latest_user_query(messages: list) -> str:
     """Extract ONLY the most recent user query (multi-turn safe)"""
+
+    # 🔍 DEBUG: Print last 2 user messages to see format
+    user_messages = [m for m in messages if m.get("role") == "user"]
+    if user_messages:
+        last_msg = user_messages[-1]
+        print(f"[MCP DEBUG] Last user message content: {str(last_msg.get('content', ''))[:200]}")
     
     last_user_msg = None
     last_tool_msg = None
@@ -459,13 +470,25 @@ def _extract_latest_user_query(messages: list) -> str:
     # Priority 2: Extract from last user message
     if last_user_msg:
         content = last_user_msg.get("content", "")
-        
+    
         # Handle list format (Roo's standard format)
         if isinstance(content, list):
+            # Process blocks in order and return FIRST non-environment match
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "text":
                     text = block.get("text", "")
-                    
+                
+                    # Skip environment_details blocks
+                    if "<environment_details>" in text and "</environment_details>" in text:
+                        # But check if query is BEFORE environment_details
+                        parts = text.split("<environment_details>")
+                        if parts[0].strip() and len(parts[0].strip()) > 5:
+                            query = parts[0].strip()
+                            query = re.sub(r'<[^>]+>', '', query)
+                            print(f"[MCP] 📋 Extracted before environment: {query[:60]}")
+                            return query.lower()
+                        continue
+                
                     # Try ALL possible tag formats
                     for tag in ["user_message", "task", "user_query", "query", "instruction"]:
                         pattern = f'<{tag}>(.*?)</{tag}>'
@@ -476,9 +499,26 @@ def _extract_latest_user_query(messages: list) -> str:
                             if len(query) > 3:
                                 print(f"[MCP] 📋 Extracted from <{tag}>: {query[:60]}")
                                 return query.lower()
+                
+                    # If no tags found but text is short and meaningful, use it
+                    cleaned = re.sub(r'<[^>]+>', '', text).strip()
+                    if cleaned and len(cleaned) < 200 and len(cleaned) > 5:
+                        # But skip if it's just environment noise
+                        if not any(noise in cleaned.lower() for noise in ["vscode", "current time", "iso 8601", "time zone"]):
+                            print(f"[MCP] 📋 Extracted from plain text: {cleaned[:60]}")
+                            return cleaned.lower()
         
         # Handle string format
         elif isinstance(content, str):
+            # Check if query is BEFORE environment_details
+            if "<environment_details>" in content:
+                parts = content.split("<environment_details>")
+                if parts[0].strip() and len(parts[0].strip()) > 5:
+                    query = parts[0].strip()
+                    query = re.sub(r'<[^>]+>', '', query)
+                    print(f"[MCP] 📋 Extracted before environment: {query[:60]}")
+                    return query.lower()
+            
             # Try ALL possible tag formats
             for tag in ["user_message", "task", "user_query", "query", "instruction"]:
                 pattern = f'<{tag}>(.*?)</{tag}>'
@@ -508,171 +548,505 @@ def _extract_latest_user_query(messages: list) -> str:
                     print(f"[MCP] 📋 Extracted from plain text: {line[:60]}")
                     return line.lower()
     
+    # Priority 3: Check previous user message (sometimes Roo's query is earlier)
+    if len(user_messages) >= 2:
+        prev_msg = user_messages[-2]
+        content = prev_msg.get("content", "")
+        
+        if isinstance(content, str) and len(content) > 5 and len(content) < 200:
+            # Simple string queries like "remove all users from group"
+            cleaned = re.sub(r'<[^>]+>', '', content).strip()
+            if cleaned and not any(noise in cleaned.lower() for noise in ["vscode", "current time"]):
+                print(f"[MCP] 📋 Extracted from previous message: {cleaned[:60]}")
+                return cleaned.lower()
+    
     print("[MCP] ⚠️ No query extracted, using defaults")
     return ""
+
+
 
 def _get_relevant_tools(messages: list) -> Set[str]:
     msg = _extract_latest_user_query(messages)
     msg = _normalize_plural(msg)  # Normalize plurals to singular
+
+    print(f"[MCP DEBUG] 🔍 Query after normalization: '{msg}'")
+    print(f"[MCP DEBUG] 🔍 'delete' in msg: {'delete' in msg}")
+    print(f"[MCP DEBUG] 🔍 'user' in msg: {'user' in msg}")
+    print(f"[MCP DEBUG] 🔍 'group' not in msg: {'group' not in msg}")
     
     tools = set()
+    
     def add_tool(base_name):
-        tools.add(f"mcp--okta-admin--{base_name}")
-        tools.add(f"mcp--okta___admin--{base_name}")
+        # Try all possible MCP server naming conventions
+        tools.add(f"mcp--okta-admin--{base_name}")      # Standard: okta-admin
+        tools.add(f"mcp--okta___admin--{base_name}")    # Triple underscore variant
+        tools.add(f"mcp--oktaadmin--{base_name}")       # No dash: oktaadmin
+        tools.add(f"mcp__okta_admin__{base_name}")      # All underscores
     
     add_tool("check_permissions")
+    add_tool("checkpermissions")  # No underscore variant
     
     if not msg or len(msg) < 3:
         add_tool("list_users")
+        add_tool("listusers")
         add_tool("list_groups")
+        add_tool("listgroups")
         add_tool("list_group_users")
+        add_tool("listgroupusers")
         add_tool("find_user")
+        add_tool("finduser")
         return tools
     
     attribute_keywords = ["division", "department", "title", "location", "manager", "costcenter", "cost center", "office", "city", "country", "org", "organization", "team", "role", "level", "grade", "profile", "attribute", "property", "field"]
     has_attribute_query = any(kw in msg for kw in attribute_keywords)
     
+    # LOGS - Process FIRST to prioritize log queries
+    is_log_query = any(w in msg for w in ["log", "logs", "audit", "event", "activity", "history"])
+    
+    if is_log_query:
+        # Try all possible tool name variations
+        add_tool("get_logs")           # Standard naming: get_logs
+        add_tool("getlogs")            # No underscore variant: getlogs
+        add_tool("list_system_logs")   # Alternative naming
+        add_tool("listsystemlogs")
+        add_tool("system_logs")
+        add_tool("systemlogs")
+        
+        # If asking about logs for a specific user, also include user lookup
+        if "user" in msg or any(w in msg for w in ["for", "by", "from", "about"]):
+            add_tool("find_user")
+            add_tool("finduser")
+            add_tool("get_user")
+            add_tool("getuser")
+        
+        return tools  # Return early to prioritize log queries
+    
     # USERS
     if "list" in msg and "user" in msg and "group" not in msg and "app" not in msg:
         add_tool("list_users")
+        add_tool("listusers")
     if any(w in msg for w in ["search", "find", "lookup", "get", "show", "who has", "user with"]):
         if "user" in msg or has_attribute_query:
             add_tool("find_user")
+            add_tool("finduser")
             add_tool("search_users_fuzzy")
+            add_tool("searchusersfuzzy")
             add_tool("get_user")
+            add_tool("getuser")
+            add_tool("search_users")
+            add_tool("searchusers")
             if has_attribute_query:
                 add_tool("search_users_by_attribute")
+                add_tool("searchusersbyattribute")
     if "create" in msg and "user" in msg and "group" not in msg:
         add_tool("create_user")
+        add_tool("createuser")
     if ("update" in msg or "modify" in msg or "change" in msg) and "user" in msg:
         add_tool("update_user")
+        add_tool("updateuser")
         add_tool("get_user")
+        add_tool("getuser")
+        add_tool("find_user")
+        add_tool("finduser")
     if "deactivate" in msg and "user" in msg:
         add_tool("deactivate_user")
+        add_tool("deactivateuser")
         add_tool("find_user")
+        add_tool("finduser")
+        add_tool("get_user")
+        add_tool("getuser")
+    if "activate" in msg and "user" in msg:
+        add_tool("activate_user")
+        add_tool("activateuser")
+        add_tool("reactivate_user")
+        add_tool("reactivateuser")
+        add_tool("find_user")
+        add_tool("finduser")
+        add_tool("get_user")
+        add_tool("getuser")
+    if "reactivate" in msg and "user" in msg:
+        add_tool("reactivate_user")
+        add_tool("reactivateuser")
+        add_tool("find_user")
+        add_tool("finduser")
+        add_tool("get_user")
+        add_tool("getuser")
     if "delete" in msg and "user" in msg and "group" not in msg:
+        print(f"[MCP DEBUG] 🔴 DELETE USER MATCHED! msg='{msg}'")
         add_tool("delete_user")
+        add_tool("deleteuser")
+        add_tool("deactivateuser")
+        add_tool("deactivate_user")
         add_tool("find_user")
+        add_tool("finduser")
+        add_tool("get_user")
+        add_tool("getuser")
+    if any(w in msg for w in ["what group", "which group", "user group", "user's group"]) and "user" in msg:
+        add_tool("get_user_groups")
+        add_tool("getusergroups")
+        add_tool("find_user")
+        add_tool("finduser")
+        add_tool("get_user")
+        add_tool("getuser")    
     if any(w in msg for w in ["reset", "unlock", "mfa", "password", "2fa", "factor"]):
         if "user" in msg or "mfa" in msg or "password" in msg:
             add_tool("reset_user_mfa_and_password")
+            add_tool("resetusermfaandpassword")
             add_tool("find_user")
+            add_tool("finduser")
+    # Batch operations with attribute filtering
+    if has_attribute_query and "user" in msg:
+        if any(w in msg for w in ["add", "assign"]) and "group" in msg:
+            add_tool("add_users_to_group_by_attribute")
+            add_tool("adduserstogroupbyattribute")
+            add_tool("search_users_by_attribute")
+            add_tool("searchusersbyattribute")
+            add_tool("search_groups_fuzzy")
+            add_tool("searchgroupsfuzzy")
+        if any(w in msg for w in ["remove", "unassign"]) and "group" in msg:
+            add_tool("remove_users_from_group_by_attribute")
+            add_tool("removeusersfromgroupbyattribute")
+            add_tool("search_users_by_attribute")
+            add_tool("searchusersbyattribute")
+            add_tool("search_groups_fuzzy")
+            add_tool("searchgroupsfuzzy")
+        if any(w in msg for w in ["remove", "unassign"]) and ("app" in msg or "application" in msg):
+            add_tool("unassign_users_from_application_by_attribute")
+            add_tool("unassignusersfromapplicationbyattribute")
+            add_tool("search_users_by_attribute")
+            add_tool("searchusersbyattribute")
     
     # GROUPS
     if "list" in msg and "group" in msg and any(w in msg for w in ["user", "member", "in the group", "in group"]):
+        add_tool("list_groups")
+        add_tool("listgroups")
         add_tool("list_group_users")
+        add_tool("listgroupusers")
         add_tool("search_groups_fuzzy")
+        add_tool("searchgroupsfuzzy")
         add_tool("get_group")
+        add_tool("getgroup")
     elif "list" in msg and "group" in msg:
         add_tool("list_groups")
+        add_tool("listgroups")
     if any(w in msg for w in ["search", "find", "lookup", "get", "show"]) and "group" in msg:
         add_tool("search_groups_fuzzy")
+        add_tool("searchgroupsfuzzy")
         add_tool("get_group")
+        add_tool("getgroup")
         add_tool("list_groups")
+        add_tool("listgroups")
     if "create" in msg and "group" in msg:
         add_tool("create_group")
+        add_tool("creategroup")
+        add_tool("list_groups")
+        add_tool("listgroups")
+        add_tool("search_groups_fuzzy")
+        add_tool("searchgroupsfuzzy")
         if has_attribute_query or any(w in msg for w in ["add all", "add user", "with", "who have"]):
             add_tool("search_users_by_attribute")
+            add_tool("searchusersbyattribute")
             add_tool("add_users_to_group_by_attribute")
+            add_tool("adduserstogroupbyattribute")
             add_tool("list_group_users")
+            add_tool("listgroupusers")
+            add_tool("add_user_to_group")
+            add_tool("addusertogroup")
+            add_tool("list_group_users")
+            add_tool("listgroupusers")
+            add_tool("find_user")
+            add_tool("finduser")
     if ("update" in msg or "modify" in msg or "change" in msg) and "group" in msg:
         add_tool("update_group")
+        add_tool("updategroup")
         add_tool("get_group")
+        add_tool("getgroup")
+        add_tool("search_groups_fuzzy")
+        add_tool("searchgroupsfuzzy")
+        add_tool("list_groups")
+        add_tool("listgroups")
     if "delete" in msg and "group" in msg:
         add_tool("delete_group")
+        add_tool("deletegroup")
         add_tool("search_groups_fuzzy")
+        add_tool("searchgroupsfuzzy")
         add_tool("get_group")
+        add_tool("getgroup")
+        add_tool("list_groups")
+        add_tool("listgroups")
+        # Add preview tool for safety
+        if any(w in msg for w in ["preview", "impact", "check", "what", "show"]):
+            add_tool("preview_group_deletion_impact")
+            add_tool("previewgroupdeletionimpact")
         if any(w in msg for w in ["empty", "member", "clear"]):
             add_tool("list_group_users")
+            add_tool("listgroupusers")
             add_tool("remove_users_from_group")
+            add_tool("removeusersfromgroup")
     if any(w in msg for w in ["add", "assign", "join"]) and "group" in msg:
         add_tool("add_user_to_group")
+        add_tool("addusertogroup")
         add_tool("add_users_to_group")
+        add_tool("adduserstogroup")
+        add_tool("find_user")  
+        add_tool("finduser")
+        add_tool("searchgroupsfuzzy")
+        add_tool("search_groups_fuzzy")
+        add_tool("get_group")
+        add_tool("getgroup")
+        add_tool("list_groups")
+        add_tool("listgroups")
         if has_attribute_query or any(w in msg for w in ["who have", "with", "all user"]):
             add_tool("add_users_to_group_by_attribute")
+            add_tool("adduserstogroupbyattribute")
             add_tool("search_users_by_attribute")
+            add_tool("searchusersbyattribute")
             add_tool("list_group_users")
+            add_tool("listgroupusers")
     if ("remove" in msg or "unassign" in msg) and "group" in msg and "user" in msg:
         add_tool("remove_user_from_group")
+        add_tool("removeuserfromgroup")
         add_tool("remove_users_from_group")
+        add_tool("removeusersfromgroup")
         add_tool("list_group_users")
+        add_tool("listgroupusers")
         add_tool("search_groups_fuzzy")
+        add_tool("searchgroupsfuzzy")
+        add_tool("get_group")
+        add_tool("getgroup")
+        add_tool("find_user") 
+        add_tool("finduser")   
         if has_attribute_query:
             add_tool("remove_users_from_group_by_attribute")
+            add_tool("removeusersfromgroupbyattribute")
+            add_tool("search_users_by_attribute")
+            add_tool("searchusersbyattribute")
+
+    # Preview group deletion impact (separate condition for clarity)
+    if any(w in msg for w in ["preview", "impact", "check", "what happen"]) and "delet" in msg and "group" in msg:
+        add_tool("preview_group_deletion_impact")
+        add_tool("previewgroupdeletionimpact")
+        add_tool("search_groups_fuzzy")
+        add_tool("searchgroupsfuzzy")
+        add_tool("get_group")
+        add_tool("getgroup")
+        add_tool("list_groups")
+        add_tool("listgroups")
     
     # APPLICATIONS
     if "list" in msg and ("app" in msg or "application" in msg):
-        add_tool("list_applications")
-    if any(w in msg for w in ["get", "show", "find"]) and ("app" in msg or "application" in msg):
-        add_tool("get_application")
-    if "create" in msg and ("app" in msg or "application" in msg):
-        add_tool("create_application")
-    if "delete" in msg and ("app" in msg or "application" in msg):
-        add_tool("delete_application")
-        add_tool("get_application")
-    if "list" in msg and ("app" in msg or "application" in msg):
         if "user" in msg:
             add_tool("list_application_users")
-        if "group" in msg:
+            add_tool("listapplicationusers")
+            add_tool("get_application")
+            add_tool("getapplication")
+        elif "group" in msg:
             add_tool("list_application_groups")
+            add_tool("listapplicationgroups")
+            add_tool("get_application")
+            add_tool("getapplication")
+        else:
+            add_tool("list_applications")
+            add_tool("listapplications")
+    
+    if any(w in msg for w in ["get", "show", "find"]) and ("app" in msg or "application" in msg):
+        add_tool("get_application")
+        add_tool("getapplication")
+        add_tool("list_applications")
+        add_tool("listapplications")
+    if "create" in msg and ("app" in msg or "application" in msg):
+        add_tool("create_application")
+        add_tool("createapplication")
+        add_tool("list_applications")
+        add_tool("listapplications")
+    if "delete" in msg and ("app" in msg or "application" in msg):
+        add_tool("delete_application")
+        add_tool("deleteapplication")
+        add_tool("get_application")
+        add_tool("getapplication")
+        add_tool("list_applications")
+        add_tool("listapplications")
+        
+    
     if any(w in msg for w in ["assign", "add", "grant"]) and ("app" in msg or "application" in msg):
         if "group" in msg:
             add_tool("assign_group_to_application")
+            add_tool("assigngrouptoapplication")
             add_tool("get_application")
+            add_tool("getapplication")
+            add_tool("search_groups_fuzzy")
+            add_tool("searchgroupsfuzzy")
+            add_tool("list_groups")
+            add_tool("listgroups")
         if "user" in msg:
             add_tool("assign_user_to_application")
+            add_tool("assignusertoapplication")
             add_tool("batch_assign_users_to_application")
+            add_tool("batchassignuserstoapplication")
+            add_tool("get_application")
+            add_tool("getapplication")
+            add_tool("find_user")
+            add_tool("finduser")
+            add_tool("list_applications")
+            add_tool("listapplications")
             if any(w in msg for w in ["role", "arn", "aws", "saml"]):
                 add_tool("assign_user_to_application_with_role")
+                add_tool("assignusertoapplicationwithrole")
                 add_tool("list_application_available_roles")
+                add_tool("listapplicationavailableroles")
                 add_tool("check_role_exists_on_application")
+                add_tool("checkroleexistsonapplication")
             if has_attribute_query:
                 add_tool("search_users_by_attribute")
+                add_tool("searchusersbyattribute")
     if any(w in msg for w in ["unassign", "remove"]) and ("app" in msg or "application" in msg):
         if "user" in msg:
             add_tool("list_application_users")
+            add_tool("listapplicationusers")
+            add_tool("get_application")
+            add_tool("getapplication")
+            add_tool("find_user")
+            add_tool("finduser")
             if has_attribute_query:
                 add_tool("unassign_users_from_application_by_attribute")
+                add_tool("unassignusersfromapplicationbyattribute")
+                add_tool("search_users_by_attribute")
+                add_tool("searchusersbyattribute")
     if ("update" in msg or "change" in msg) and ("role" in msg or "arn" in msg) and ("app" in msg or "application" in msg):
         add_tool("update_user_application_role")
+        add_tool("updateuserapplicationrole")
         add_tool("list_application_available_roles")
+        add_tool("listapplicationavailableroles")
+        add_tool("get_application")
+        add_tool("getapplication")
+        add_tool("find_user")
+        add_tool("finduser")
     if any(w in msg for w in ["list", "show", "available"]) and "role" in msg and ("app" in msg or "application" in msg):
         add_tool("list_application_available_roles")
+        add_tool("listapplicationavailableroles")
         add_tool("get_application")
+        add_tool("getapplication")
     if "check" in msg and "role" in msg:
         add_tool("check_role_exists_on_application")
+        add_tool("checkroleexistsonapplication")
+        add_tool("get_application")
+        add_tool("getapplication")
     
     # POLICIES
-    if "delete" in msg and "policy" in msg:
-        add_tool("delete_policy")
-    if "activate" in msg and "policy" in msg:
-        add_tool("activate_policy")
-    if "deactivate" in msg and "policy" in msg:
-        add_tool("deactivate_policy")
-    if "rule" in msg and "policy" in msg:
-        if "create" in msg:
+    if "list" in msg and "policy" in msg:
+        add_tool("list_policies")
+        add_tool("listpolicies")
+        if "rule" in msg:
+            add_tool("list_policy_rules")
+            add_tool("listpolicyrules")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+
+    if any(w in msg for w in ["get", "show", "find"]) and "policy" in msg:
+        add_tool("get_policy")
+        add_tool("getpolicy")
+        add_tool("list_policies")
+        add_tool("listpolicies")
+
+    if "create" in msg and "policy" in msg:
+        if "rule" in msg:
             add_tool("create_policy_rule")
-        if "update" in msg or "modify" in msg:
+            add_tool("createpolicyrule")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+            add_tool("list_policy_rules")
+            add_tool("listpolicyrules")
+        else:
+            add_tool("create_policy")
+            add_tool("createpolicy")
+            add_tool("list_policies")
+            add_tool("listpolicies")
+
+    if "update" in msg and "policy" in msg:
+        if "rule" in msg:
             add_tool("update_policy_rule")
-        if "delete" in msg:
+            add_tool("updatepolicyrule")
+            add_tool("get_policy_rule")
+            add_tool("getpolicyrule")
+            add_tool("list_policy_rules")
+            add_tool("listpolicyrules")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+        else:
+            add_tool("update_policy")
+            add_tool("updatepolicy")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+            add_tool("list_policies")
+            add_tool("listpolicies")
+
+    if "delete" in msg and "policy" in msg:
+        if "rule" in msg:
             add_tool("delete_policy_rule")
-        if "activate" in msg:
+            add_tool("deletepolicyrule")
+            add_tool("get_policy_rule")
+            add_tool("getpolicyrule")
+            add_tool("list_policy_rules")
+            add_tool("listpolicyrules")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+        else:
+            add_tool("delete_policy")
+            add_tool("deletepolicy")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+            add_tool("list_policies")
+            add_tool("listpolicies")
+
+    if "activate" in msg and "policy" in msg:
+        if "rule" in msg:
             add_tool("activate_policy_rule")
-        if "deactivate" in msg:
+            add_tool("activatepolicyrule")
+            add_tool("get_policy_rule")
+            add_tool("getpolicyrule")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+        else:
+            add_tool("activate_policy")
+            add_tool("activatepolicy")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+
+    if "deactivate" in msg and "policy" in msg:
+        if "rule" in msg:
             add_tool("deactivate_policy_rule")
-    
-    # LOGS
-    if any(w in msg for w in ["log", "audit", "event", "activity"]):
-        add_tool("list_system_logs")
+            add_tool("deactivatepolicyrule")
+            add_tool("get_policy_rule")
+            add_tool("getpolicyrule")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+        else:
+            add_tool("deactivate_policy")
+            add_tool("deactivatepolicy")
+            add_tool("get_policy")
+            add_tool("getpolicy")
+
+    if any(w in msg for w in ["get", "show"]) and "rule" in msg and "policy" in msg:
+        add_tool("get_policy_rule")
+        add_tool("getpolicyrule")
+        add_tool("list_policy_rules")
+        add_tool("listpolicyrules")
+        add_tool("get_policy")
+        add_tool("getpolicy")
     
     # FALLBACK
     if len(tools) == 1:
         add_tool("list_users")
+        add_tool("listusers")
         add_tool("list_groups")
+        add_tool("listgroups")
         add_tool("list_group_users")
+        add_tool("listgroupusers")
         add_tool("find_user")
+        add_tool("finduser")
     
     return tools
+
 
 def _ultra_slim_tool(t: Dict[str, Any]) -> Dict[str, Any]:
     fn = t.get("function", {})
@@ -689,6 +1063,7 @@ def _ultra_slim_tool(t: Dict[str, Any]) -> Dict[str, Any]:
     if func_desc and not func_desc.endswith('.'):
         func_desc += '.'
     return {"type": "function", "function": {"name": fn.get("name", ""), "description": func_desc, "parameters": {"type": "object", "properties": minimal_props, "required": required[:] if required else []}}}
+
 
 class McpOnlyToolsHandler(CustomLogger):
     async def async_pre_call_hook(self, user_api_key_dict: UserAPIKeyAuth, cache: DualCache, data: dict, call_type: Literal["completion", "text_completion", "embeddings", "image_generation", "moderation", "audio_transcription"]):
@@ -713,16 +1088,32 @@ class McpOnlyToolsHandler(CustomLogger):
                 tools = optional_tools
             if not tools:
                 return data
+            
             kept = []
             okta_count = 0
+            all_okta_tools = []
+            matched_okta_tools = []
+            
             for t in tools:
                 name = _extract_tool_name(t)
                 if not _is_okta_mcp(name):
                     kept.append(t)
                     continue
+                
+                # Debug: track all Okta tools
+                all_okta_tools.append(name)
+                
                 if name in relevant_tools:
                     kept.append(_ultra_slim_tool(t))
+                    matched_okta_tools.append(name)
                     okta_count += 1
+            
+            # Debug: Print what tools exist vs what we're looking for
+            log_tools = [n for n in all_okta_tools if 'log' in n.lower()]
+            print(f"[MCP DEBUG] All Okta tools with 'log': {log_tools}")
+            print(f"[MCP DEBUG] Relevant tools requested: {relevant_tools}")
+            print(f"[MCP DEBUG] Matched Okta tools: {matched_okta_tools}")
+            
             query = _extract_latest_user_query(messages)
             display_msg = query[:60] if query and len(query) > 5 else "unknown query"
             print(f"[MCP] '{display_msg}...' | {len(tools)} → {len(kept)} ({okta_count} Okta)")
@@ -736,6 +1127,7 @@ class McpOnlyToolsHandler(CustomLogger):
             import traceback
             traceback.print_exc()
             return data
+
 
 proxy_handler_instance = McpOnlyToolsHandler()
 

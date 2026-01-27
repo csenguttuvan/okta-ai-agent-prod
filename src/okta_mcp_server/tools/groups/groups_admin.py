@@ -580,3 +580,188 @@ def remove_users_from_group(
         "message": f"Removed {len(results)} users. Skipped {len(skipped_inactive)} inactive users."
     }
 
+
+
+@mcp.tool()
+def add_user_to_group(
+    group_id: str,
+    user_id: str,
+    ctx: Context | None = None
+) -> dict:
+    """Add a single user to a group (requires okta.groups.manage scope).
+
+    This is a convenience wrapper for adding one user. For adding multiple users,
+    use add_users_to_group() which is more efficient.
+
+    Args:
+        group_id: The Okta group ID
+        user_id: The Okta user ID to add
+        ctx: Optional context
+
+    Returns:
+        Dict with operation status
+
+    Note:
+        - Only ACTIVE users can be added to groups
+        - Users with other statuses (PROVISIONED, DEACTIVATED, etc.) will be rejected
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Adding user {user_id} to group {group_id}")
+
+    client = get_client()
+
+    try:
+        # Import validation function
+        from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+
+        # Validate user is ACTIVE
+        is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+
+        if not is_active:
+            logger.error(f"[caller={caller}] ❌ Cannot add user: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "user_id": user_id,
+                "user_status": user.get("status"),
+                "message": "Only ACTIVE users can be added to groups"
+            }
+
+        # Add user to group
+        client.put(f"/api/v1/groups/{group_id}/users/{user_id}")
+
+        user_email = user.get("profile", {}).get("email")
+        logger.info(f"[caller={caller}] ✅ Added user {user_email} to group {group_id}")
+
+        return {
+            "success": True,
+            "message": f"User {user_email} added to group successfully",
+            "user_id": user_id,
+            "user_email": user_email,
+            "group_id": group_id,
+            "added_by": caller
+        }
+
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error adding user to group: {str(e)}")
+        raise
+
+
+
+@mcp.tool()
+def update_group(
+    group_id: str,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    ctx: Context | None = None
+) -> dict:
+    """Update an Okta group's name or description (requires okta.groups.manage scope).
+
+    At least one of name or description must be provided to update.
+
+    Args:
+        group_id: The Okta group ID
+        name: New name for the group (optional)
+        description: New description for the group (optional, use empty string to clear)
+        ctx: Optional context
+
+    Returns:
+        Dict with updated group information
+
+    Example:
+        # Update name only
+        update_group(group_id="00gxxx", name="New Group Name")
+
+        # Update description only
+        update_group(group_id="00gxxx", description="New description")
+
+        # Update both
+        update_group(group_id="00gxxx", name="New Name", description="New description")
+
+        # Clear description
+        update_group(group_id="00gxxx", description="")
+    """
+    caller = get_caller_email()
+
+    # Normalize null values
+    if name == "null":
+        name = None
+    if description == "null":
+        description = None
+
+    # Validate that at least one field is being updated
+    if name is None and description is None:
+        return {
+            "success": False,
+            "error": "At least one of 'name' or 'description' must be provided",
+            "message": "No changes requested"
+        }
+
+    logger.info(f"[caller={caller}] Updating group {group_id}")
+
+    client = get_client()
+
+    try:
+        # Get current group data
+        group = client.get(f"/api/v1/groups/{group_id}")
+        current_name = group.get("profile", {}).get("name")
+        current_description = group.get("profile", {}).get("description", "")
+
+        # Build update payload with only changed fields
+        profile = {}
+
+        if name is not None:
+            profile["name"] = name
+            logger.info(f"[caller={caller}] Changing group name: '{current_name}' → '{name}'")
+        else:
+            profile["name"] = current_name  # Keep existing name
+
+        if description is not None:
+            profile["description"] = description if description else ""
+            logger.info(f"[caller={caller}] Changing group description: '{current_description}' → '{description}'")
+        else:
+            profile["description"] = current_description  # Keep existing description
+
+        # Update group
+        updated_group = client.put(
+            f"/api/v1/groups/{group_id}",
+            data={"profile": profile}
+        )
+
+        logger.info(f"[caller={caller}] ✅ Updated group {group_id}")
+
+        # Enhanced audit log
+        logger.info(
+            f"AUDIT: Group update | "
+            f"caller={caller} | "
+            f"group_id={group_id} | "
+            f"group_name={profile['name']} | "
+            f"name_changed={name is not None} | "
+            f"description_changed={description is not None}"
+        )
+
+        return {
+            "success": True,
+            "message": f"Group updated successfully",
+            "group": {
+                "id": updated_group.get("id"),
+                "name": updated_group.get("profile", {}).get("name"),
+                "description": updated_group.get("profile", {}).get("description"),
+                "type": updated_group.get("type")
+            },
+            "changes": {
+                "name": {"old": current_name, "new": profile["name"]} if name is not None else None,
+                "description": {"old": current_description, "new": profile["description"]} if description is not None else None
+            },
+            "updated_by": caller
+        }
+
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] ❌ Error updating group: {str(e)}")
+        raise
