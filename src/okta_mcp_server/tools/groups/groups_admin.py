@@ -198,93 +198,109 @@ def create_group(
 def delete_group(
     group_id: str,
     confirm_deletion: bool = False,
-    ctx: Context | None = None
+    ctx: Context = None
 ) -> dict:
     """Delete an Okta group (requires okta.groups.manage scope).
     
-    ⚠️ DESTRUCTIVE OPERATION - All members will be removed and app assignments deleted.
+    ⚠️ DESTRUCTIVE OPERATION - Cannot be undone.
     
     Args:
-        group_id: The Okta group ID
+        group_id: The Okta group ID (format: 00g1234567890123456)
         confirm_deletion: Must be True to proceed (prevents accidental deletion)
         ctx: Optional context
         
     Returns:
         Dict with operation status
         
-    Warning:
-        - All users will be removed from the group
-        - All application assignments will be deleted
-        - This operation cannot be undone
+    Note:
+        - Built-in groups (like "Everyone") cannot be deleted
+        - All group memberships will be removed
+        - Group rules and app assignments will be affected
     """
     caller = get_caller_email()
     
-    # Require explicit confirmation
-    if not confirm_deletion:
+    try:
+        # ✅ VALIDATION
+        is_valid, error = validate_okta_id(group_id, "group", required=True)
+        validate_and_raise(is_valid, error, f"[{caller}]")
+        
+        is_valid, error = validate_boolean(confirm_deletion, required=True, field_name="confirm_deletion")
+        validate_and_raise(is_valid, error, f"[{caller}]")
+        
+        if not confirm_deletion:
+            logger.warning(f"[{caller}] Deletion not confirmed for group {group_id}")
+            return {
+                "success": False,
+                "error": "Deletion not confirmed",
+                "message": "Set confirm_deletion=True to proceed with group deletion",
+                "group_id": group_id,
+                "warning": "⚠️ This is a permanent operation that CANNOT be undone"
+            }
+        
+        logger.warning(f"[{caller}] ⚠️ DESTRUCTIVE: Attempting to delete group {group_id}")
         client = get_client()
         
-        try:
-            # Get group info to show what will be deleted
-            group = client.get(f"/api/v1/groups/{group_id}")
-            group_name = group.get("profile", {}).get("name")
-            
-            # Get member count
-            members = client.get(f"/api/v1/groups/{group_id}/users", params={"limit": 1})
-            
-            return {
-                "success": False,
-                "error": "Deletion not confirmed",
-                "message": "Set confirm_deletion=True to proceed with group deletion",
-                "group_id": group_id,
-                "group_name": group_name,
-                "warning": f"⚠️ This will permanently delete the group '{group_name}' and remove all members",
-                "note": "Consider using preview_group_deletion_impact() to see full impact first"
-            }
-        except Exception:
-            return {
-                "success": False,
-                "error": "Deletion not confirmed",
-                "message": "Set confirm_deletion=True to proceed with group deletion",
-                "group_id": group_id,
-                "warning": "⚠️ This is a permanent operation that cannot be undone"
-            }
-    
-    logger.warning(f"[caller={caller}] ⚠️ DESTRUCTIVE: Deleting group {group_id}")
-    
-    client = get_client()
-    
-    try:
-        # Get group info for audit log
+        # Get group info before deletion
         group = client.get(f"/api/v1/groups/{group_id}")
         group_name = group.get("profile", {}).get("name")
+        group_type = group.get("type")
+        
+        # Check if it's a built-in group
+        if group_type == "BUILT_IN":
+            logger.error(f"[{caller}] Cannot delete built-in group: {group_name}")
+            return {
+                "success": False,
+                "error": "Cannot delete built-in groups",
+                "group_id": group_id,
+                "group_name": group_name,
+                "group_type": group_type,
+                "message": "Built-in groups like 'Everyone' are protected by Okta"
+            }
         
         # Enhanced audit log
         logger.error(
             f"AUDIT: Group deletion | "
             f"caller={caller} | "
-            f"group_name={group_name} | "
-            f"group_id={group_id}"
+            f"target_group={group_name} | "
+            f"target_group_id={group_id} | "
+            f"WARNING: PERMANENT_DELETION"
         )
         
         # Delete group
         client.delete(f"/api/v1/groups/{group_id}")
         
-        logger.warning(f"[caller={caller}] ⚠️ DELETED group: {group_name}")
+        logger.error(f"[{caller}] ⚠️ DELETED group: {group_name} (PERMANENT)")
         
         return {
             "success": True,
-            "message": f"Group '{group_name}' deleted successfully",
+            "message": f"Group '{group_name}' deleted permanently",
             "group_id": group_id,
             "group_name": group_name,
-            "deleted_by": caller
+            "deleted_by": caller,
+            "warning": "This operation is permanent and cannot be undone"
         }
         
+    except ValidationError as e:
+        logger.error(f"[{caller}] Validation error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "group_id": group_id
+        }
     except PermissionError as e:
-        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
-        raise
+        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Permission denied: {str(e)}",
+            "group_id": group_id
+        }
     except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error deleting group: {str(e)}")
-        raise
+        logger.error(f"[{caller}] ❌ Error deleting group: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "group_id": group_id
+        }
 
 @mcp.tool()
 def preview_group_deletion_impact(
@@ -467,50 +483,87 @@ def add_users_to_group(
 def remove_user_from_group(
     group_id: str,
     user_id: str,
-    ctx: Context | None = None
+    ctx: Context = None
 ) -> dict:
     """Remove a user from a group (requires okta.groups.manage scope).
     
-    Only ACTIVE users can be removed from groups.
+    ⚠️ This removes the user's group membership and associated permissions.
+    
+    Args:
+        group_id: The Okta group ID (format: 00g1234567890123456)
+        user_id: The Okta user ID (format: 00u1234567890123456)
+        ctx: Optional context
+        
+    Returns:
+        Dict with operation status
     """
     caller = get_caller_email()
-    logger.info(f"[caller={caller}] Removing user {user_id} from group {group_id}")
-    
-    client = get_client()
     
     try:
-        # Import validation function
-        from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+        # ✅ VALIDATION
+        is_valid, error = validate_okta_id(group_id, "group", required=True)
+        validate_and_raise(is_valid, error, f"[{caller}]")
         
-        # Validate user is ACTIVE
-        is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
+        is_valid, error = validate_okta_id(user_id, "user", required=True)
+        validate_and_raise(is_valid, error, f"[{caller}]")
         
-        if not is_active:
-            logger.error(f"[caller={caller}] ❌ Cannot remove user: {error_msg}")
-            return {
-                "success": False,
-                "error": error_msg,
-                "user_id": user_id,
-                "user_status": user.get("status"),
-                "message": "Only ACTIVE users can be removed from groups"
-            }
+        logger.info(f"[{caller}] Removing user {user_id} from group {group_id}")
+        client = get_client()
         
+        # Get names for better logging
+        group = client.get(f"/api/v1/groups/{group_id}")
+        user = client.get(f"/api/v1/users/{user_id}")
+        group_name = group.get("profile", {}).get("name")
+        user_email = user.get("profile", {}).get("email")
+        
+        # Audit log
+        logger.warning(
+            f"AUDIT: Group membership removal | "
+            f"caller={caller} | "
+            f"user={user_email} | "
+            f"group={group_name}"
+        )
+        
+        # Remove user from group
         client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
-        logger.info(f"[caller={caller}] ✅ Removed user {user_id} from group {group_id}")
+        
+        logger.info(f"[{caller}] User {user_email} removed from group {group_name}")
         
         return {
             "success": True,
-            "message": "User removed from group successfully",
+            "message": f"User {user_email} removed from group '{group_name}'",
+            "group_id": group_id,
+            "group_name": group_name,
             "user_id": user_id,
-            "user_status": "ACTIVE"
+            "user_email": user_email,
+            "removed_by": caller
         }
         
+    except ValidationError as e:
+        logger.error(f"[{caller}] Validation error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "group_id": group_id,
+            "user_id": user_id
+        }
     except PermissionError as e:
-        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
-        raise
+        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Permission denied: {str(e)}",
+            "group_id": group_id,
+            "user_id": user_id
+        }
     except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error removing user from group: {str(e)}")
-        raise
+        logger.error(f"[{caller}] ❌ Error removing user from group: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "group_id": group_id,
+            "user_id": user_id
+        }
+
 
 
 

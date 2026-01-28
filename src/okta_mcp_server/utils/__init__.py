@@ -16,10 +16,30 @@ from okta_mcp_server.utils.retry import (
     is_retryable_error,
 )
 from okta_mcp_server.utils.retryable_client import RetryableOktaClient
+from okta_mcp_server.utils.validation import (
+    validate_okta_id,
+    validate_email,
+    validate_string,
+    validate_boolean,
+    validate_integer,
+    validate_and_raise,
+    validate_params,
+    ValidationError,
+)
 
 __all__ = [
+    # Retry functions
     'retry_on_transient_error',
     'async_retry_on_transient_error',
     'is_retryable_error',
     'RetryableOktaClient',
+    # Validation functions
+    'validate_okta_id',
+    'validate_email',
+    'validate_string',
+    'validate_boolean',
+    'validate_integer',
+    'validate_and_raise',
+    'validate_params',
+    'ValidationError',
 ]

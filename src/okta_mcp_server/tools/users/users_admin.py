@@ -5,6 +5,13 @@ from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
 from okta_mcp_server.context import get_caller_email, get_caller_groups
 
+from okta_mcp_server.utils.validation import (
+    validate_okta_id,
+    validate_boolean,
+    validate_and_raise,
+    ValidationError,
+)
+
 
 
 # ---------------------------
@@ -81,17 +88,15 @@ def create_user(
 @mcp.tool()
 def deactivate_user(
     user_id: str,
-    confirm_deactivation: bool = False,
     ctx: Context = None
 ) -> dict:
     """Deactivate an Okta user (requires okta.users.manage scope).
     
-    ⚠️ DESTRUCTIVE OPERATION - User will lose access to all applications.
-    Automatically activates PROVISIONED users before deactivating (Okta requirement).
+    ⚠️ This suspends the user's access but does not delete the account.
+    User can be reactivated later. Required before permanent deletion.
     
     Args:
-        user_id: The Okta user ID or login email
-        confirm_deactivation: Must be True to proceed
+        user_id: The Okta user ID (format: 00u1234567890123456)
         ctx: Optional context
         
     Returns:
@@ -99,50 +104,41 @@ def deactivate_user(
     """
     caller = get_caller_email()
     
-    if not confirm_deactivation:
-        return {
-            "success": False,
-            "error": "Deactivation not confirmed",
-            "message": "Set confirm_deactivation=True to proceed"
-        }
-    
-    client = get_client()
-    
     try:
-        # Get current status
+        # ✅ VALIDATION
+        is_valid, error = validate_okta_id(user_id, "user", required=True)
+        validate_and_raise(is_valid, error, f"[{caller}]")
+        
+        logger.info(f"[{caller}] Deactivating user: {user_id}")
+        client = get_client()
+        
+        # Get user email for logging
         user = client.get(f"/api/v1/users/{user_id}")
         user_email = user.get("profile", {}).get("email")
-        user_status = user.get("status")
+        current_status = user.get("status")
         
-        # Handle PROVISIONED status (auto-activate first)
-        if user_status == "PROVISIONED":
-            logger.warning(f"[caller={caller}] User {user_email} is PROVISIONED, activating first...")
-            client.post(f"/api/v1/users/{user_id}/lifecycle/activate", params={"sendEmail": "false"}, data={})
-            logger.info(f"[caller={caller}] ✅ Auto-activated PROVISIONED user {user_email}")
-            # Status is now ACTIVE, proceed to deactivate
-        
-        elif user_status == "DEACTIVATED":
+        # Check if already deactivated
+        if current_status == "DEPROVISIONED":
             return {
                 "success": False,
-                "error": "User is already DEACTIVATED",
+                "error": "User is already deactivated",
                 "user_id": user_id,
                 "user_email": user_email,
-                "current_status": user_status
+                "status": current_status
             }
         
-        elif user_status != "ACTIVE":
-            return {
-                "success": False,
-                "error": f"Cannot deactivate user from status '{user_status}'",
-                "user_id": user_id,
-                "user_email": user_email,
-                "current_status": user_status
-            }
+        # Audit log
+        logger.warning(
+            f"AUDIT: User deactivation | "
+            f"caller={caller} | "
+            f"target_user={user_email} | "
+            f"target_user_id={user_id}"
+        )
         
         # Deactivate user
         client.post(f"/api/v1/users/{user_id}/lifecycle/deactivate", data={})
         
-        logger.warning(f"[caller={caller}] ⚠️ DEACTIVATED user: {user_email}")
+        logger.warning(f"[{caller}] ⚠️ User deactivated: {user_email}")
         
         return {
             "success": True,
@@ -150,14 +146,30 @@ def deactivate_user(
             "user_id": user_id,
             "user_email": user_email,
             "deactivated_by": caller,
-            "previous_status": user_status,
-            "new_status": "DEACTIVATED",
-            "note": "Auto-activated from PROVISIONED before deactivating" if user_status == "PROVISIONED" else None
+            "note": "User can be reactivated or permanently deleted"
         }
         
+    except ValidationError as e:
+        logger.error(f"[{caller}] Validation error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "user_id": user_id
+        }
+    except PermissionError as e:
+        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Permission denied: {str(e)}",
+            "user_id": user_id
+        }
     except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error deactivating user: {str(e)}")
-        raise
+        logger.error(f"[{caller}] ❌ Error deactivating user: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "user_id": user_id
+        }
 
 
 
@@ -172,7 +184,7 @@ def delete_user(
     ⚠️ DESTRUCTIVE OPERATION - Cannot be undone. User must be deactivated first.
     
     Args:
-        user_id: The Okta user ID or login email
+        user_id: The Okta user ID (format: 00u1234567890123456)
         confirm_deletion: Must be True to proceed (prevents accidental deletion)
         ctx: Optional context
         
@@ -186,21 +198,36 @@ def delete_user(
     """
     caller = get_caller_email()
     
-    # Require explicit confirmation
-    if not confirm_deletion:
-        return {
-            "success": False,
-            "error": "Deletion not confirmed",
-            "message": "Set confirm_deletion=True to proceed with user deletion",
-            "user_id": user_id,
-            "warning": "⚠️ This is a permanent operation that CANNOT be undone"
-        }
-    
-    logger.warning(f"[caller={caller}] ⚠️ DESTRUCTIVE: Attempting to delete user {user_id}")
-    
-    client = get_client()
-    
     try:
+        # ✅ VALIDATION BLOCK - DELETE USER
+        # Validate user_id format
+        is_valid, error = validate_okta_id(user_id, "user", required=True)
+        validate_and_raise(is_valid, error, f"[{caller}]")
+        
+        # Validate confirm_deletion is a boolean
+        is_valid, error = validate_boolean(
+            confirm_deletion, 
+            required=True, 
+            field_name="confirm_deletion"
+        )
+        validate_and_raise(is_valid, error, f"[{caller}]")
+        
+        # Business logic: Check confirmation is True
+        if not confirm_deletion:
+            logger.warning(f"[{caller}] Deletion not confirmed for user {user_id}")
+            return {
+                "success": False,
+                "error": "Deletion not confirmed",
+                "message": "Set confirm_deletion=True to proceed with user deletion",
+                "user_id": user_id,
+                "warning": "⚠️ This is a permanent operation that CANNOT be undone"
+            }
+        # END VALIDATION BLOCK
+        
+        logger.warning(f"[{caller}] ⚠️ DESTRUCTIVE: Attempting to delete user {user_id}")
+        
+        client = get_client()
+        
         # Get user info before deletion
         user = client.get(f"/api/v1/users/{user_id}")
         user_email = user.get("profile", {}).get("email")
@@ -208,6 +235,10 @@ def delete_user(
         
         # Verify user is DEACTIVATED (Okta requirement)
         if user_status != "DEACTIVATED":
+            logger.warning(
+                f"[{caller}] Cannot delete user {user_email} - "
+                f"status is {user_status}, must be DEACTIVATED"
+            )
             return {
                 "success": False,
                 "error": f"User must be DEACTIVATED before deletion. Current status: {user_status}",
@@ -230,7 +261,7 @@ def delete_user(
         # Delete user
         client.delete(f"/api/v1/users/{user_id}")
         
-        logger.error(f"[caller={caller}] ⚠️ DELETED user: {user_email} (PERMANENT)")
+        logger.error(f"[{caller}] ⚠️ DELETED user: {user_email} (PERMANENT)")
         
         return {
             "success": True,
@@ -241,12 +272,28 @@ def delete_user(
             "warning": "This operation is permanent and cannot be undone"
         }
         
+    except ValidationError as e:
+        # Validation failed - no API call made
+        logger.error(f"[{caller}] Validation error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "user_id": user_id
+        }
     except PermissionError as e:
-        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
-        raise
+        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Permission denied: {str(e)}",
+            "user_id": user_id
+        }
     except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error deleting user: {str(e)}")
-        raise
+        logger.error(f"[{caller}] ❌ Error deleting user: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "user_id": user_id
+        }
 
 
 
