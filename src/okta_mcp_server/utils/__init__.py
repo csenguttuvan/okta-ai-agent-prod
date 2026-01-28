@@ -4,3 +4,22 @@
 # You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
 # Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and limitations under the License.
+
+# okta_mcp_server/utils/__init__.py
+"""
+Utility modules for Okta MCP Server.
+"""
+
+from okta_mcp_server.utils.retry import (
+    retry_on_transient_error,
+    async_retry_on_transient_error,
+    is_retryable_error,
+)
+from okta_mcp_server.utils.retryable_client import RetryableOktaClient
+
+__all__ = [
+    'retry_on_transient_error',
+    'async_retry_on_transient_error',
+    'is_retryable_error',
+    'RetryableOktaClient',
+]

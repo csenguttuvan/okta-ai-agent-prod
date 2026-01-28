@@ -6,6 +6,11 @@ import threading
 from typing import Optional, Dict, Any
 from loguru import logger
 
+from okta_mcp_server.utils.retryable_client import RetryableOktaClient
+
+okta_client = None
+_retryable_client_cache = None
+
 class OktaOAuthJWTClient:
     """OAuth 2.0 client for Okta API using private_key_jwt authentication."""
 
@@ -221,8 +226,32 @@ def init_okta_client():
 
 
 def get_client():
-    """Get the global okta_client instance."""
-    global okta_client
+    """
+    Get the global Okta client instance with automatic retry logic.
+    
+    The returned client automatically retries on:
+    - Rate limits (429)
+    - Timeouts
+    - 5xx server errors
+    - Network connection issues
+    
+    Returns:
+        RetryableOktaClient: Okta client with retry logic
+        
+    Raises:
+        RuntimeError: If Okta client not initialized
+    """
+    global okta_client, _retryable_client_cache
+    
     if okta_client is None:
         raise RuntimeError("Okta client not initialized. Call init_okta_client() first.")
-    return okta_client
+    
+    # Cache the wrapped client to avoid re-wrapping on every call
+    if _retryable_client_cache is None:
+        _retryable_client_cache = RetryableOktaClient(
+            okta_client, 
+            max_retries=3, 
+            backoff_factor=2.0
+        )
+    
+    return _retryable_client_cache
