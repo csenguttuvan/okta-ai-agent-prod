@@ -376,7 +376,7 @@ general_settings:
 EOF
 
 
-sudo tee /opt/okta-litellm/custom_callbacks.py << 'EOF'
+cat > /opt/okta-litellm/custom_callbacks.py << 'CALLBACK_EOF'
 # custom_callbacks.py - Token-optimized MCP tool filtering
 from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional, Set
@@ -385,6 +385,15 @@ from litellm.proxy.proxy_server import DualCache, UserAPIKeyAuth
 import re
 import copy
 
+SLIM_SYSTEM_PROMPT = """Okta admin with full access via okta-admin MCP. Delete requires deactivate first. Tables for groups/apps, bullets for users.
+
+Available tools:
+- Users: find, create, update, deactivate, delete, reactivate
+- Groups: list, find, create, update, delete, members  
+- Apps: list, get, assign
+- Policies: list, get, create, update, delete
+
+Call ONE tool per turn. No assumptions."""
 
 def _extract_tool_name(tool: Any) -> str:
     if not isinstance(tool, dict):
@@ -563,7 +572,35 @@ def _extract_latest_user_query(messages: list) -> str:
     print("[MCP] ⚠️ No query extracted, using defaults")
     return ""
 
-
+def _compress_tool_response(content: str) -> str:
+    """Strip verbose fields from Okta API tool responses"""
+    try:
+        import json
+        data = json.loads(content)
+        
+        # If it's a list, limit to first 20 items
+        if isinstance(data, list) and len(data) > 20:
+            truncated_count = len(data) - 20
+            data = data[:20]
+            data.append({"_truncated": f"... and {truncated_count} more items"})
+        
+        # Remove verbose Okta fields
+        def strip_verbose(obj):
+            if isinstance(obj, dict):
+                essential = ['id', 'name', 'email', 'status', 'label', 'type', 
+                            'description', 'firstName', 'lastName', 'login', 
+                            'profile', 'success', 'error', 'message']
+                return {k: strip_verbose(v) for k, v in obj.items() if k in essential}
+            elif isinstance(obj, list):
+                return [strip_verbose(item) for item in obj[:20]]
+            return obj
+        
+        data = strip_verbose(data)
+        return json.dumps(data, separators=(',', ':'))
+    except:
+        if len(content) > 1000:
+            return content[:1000] + f"... [truncated {len(content) - 1000} chars]"
+        return content
 
 def _get_relevant_tools(messages: list) -> Set[str]:
     msg = _extract_latest_user_query(messages)
@@ -1066,18 +1103,55 @@ def _ultra_slim_tool(t: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class McpOnlyToolsHandler(CustomLogger):
-    async def async_pre_call_hook(self, user_api_key_dict: UserAPIKeyAuth, cache: DualCache, data: dict, call_type: Literal["completion", "text_completion", "embeddings", "image_generation", "moderation", "audio_transcription"]):
+    async def async_pre_call_hook(
+        self,
+        user_api_key_dict: UserAPIKeyAuth,
+        cache: DualCache,
+        data: dict,
+        call_type: Literal["completion", "embeddings", "image_generation", ...],
+    ) -> dict:
         try:
             messages = data.get("messages", [])
             if not messages:
                 return data
-            messages = _prune_conversation(messages, max_history=6)
+            
+            # 🔧 OPTIMIZATION 1: More aggressive pruning (6 → 4 messages)
+            messages = _prune_conversation(messages, max_history=4)
             data["messages"] = messages
+            
+            # 🔧 OPTIMIZATION 2: Replace verbose system prompt with slim version
+            if messages and messages[0].get("role") == "system":
+                original_length = len(messages[0].get("content", ""))
+                messages[0]["content"] = SLIM_SYSTEM_PROMPT
+                new_length = len(SLIM_SYSTEM_PROMPT)
+                print(f"[MCP] 📝 Compressed system prompt: {original_length} → {new_length} chars ({original_length - new_length} saved)")
+            
+            # 🔧 OPTIMIZATION 3: Compress tool responses from previous turns
+            # 🔧 OPTIMIZATION 3: DISABLED - Was breaking tool responses
+            # for msg in messages:
+            #     if msg.get("role") == "tool":
+            #         original_content = msg.get("content", "")
+            #         if isinstance(original_content, str) and len(original_content) > 500:
+            #             compressed = _compress_tool_response(original_content)
+            #             if len(compressed) < len(original_content):
+            #                 msg["content"] = compressed
+            #                 print(f"[MCP] 🗜️  Compressed tool response: {len(original_content)} → {len(compressed)} chars")
+            
+            # Extract query for tool filtering
+            query = _extract_latest_user_query(messages)
+            
+            # Extract query for tool filtering
+            query = _extract_latest_user_query(messages)
             relevant_tools = _get_relevant_tools(messages)
+            
+            # Deep copy to avoid mutation
             data = copy.deepcopy(data)
+            
+            # Find where tools are stored
             direct_tools = data.get("tools")
             optional_params = data.get("optional_params")
             optional_tools = optional_params.get("tools") if isinstance(optional_params, dict) else None
+            
             container = None
             tools = None
             if isinstance(direct_tools, list):
@@ -1086,9 +1160,11 @@ class McpOnlyToolsHandler(CustomLogger):
             elif isinstance(optional_tools, list):
                 container = "data.optional_params.tools"
                 tools = optional_tools
+            
             if not tools:
                 return data
             
+            # Filter tools
             kept = []
             okta_count = 0
             all_okta_tools = []
@@ -1100,7 +1176,6 @@ class McpOnlyToolsHandler(CustomLogger):
                     kept.append(t)
                     continue
                 
-                # Debug: track all Okta tools
                 all_okta_tools.append(name)
                 
                 if name in relevant_tools:
@@ -1108,20 +1183,27 @@ class McpOnlyToolsHandler(CustomLogger):
                     matched_okta_tools.append(name)
                     okta_count += 1
             
-            # Debug: Print what tools exist vs what we're looking for
-            log_tools = [n for n in all_okta_tools if 'log' in n.lower()]
-            print(f"[MCP DEBUG] All Okta tools with 'log': {log_tools}")
-            print(f"[MCP DEBUG] Relevant tools requested: {relevant_tools}")
-            print(f"[MCP DEBUG] Matched Okta tools: {matched_okta_tools}")
-            
-            query = _extract_latest_user_query(messages)
-            display_msg = query[:60] if query and len(query) > 5 else "unknown query"
-            print(f"[MCP] '{display_msg}...' | {len(tools)} → {len(kept)} ({okta_count} Okta)")
+            # Update the tools in the correct container
             if container == "data.tools":
                 data["tools"] = kept
-            else:
-                optional_params["tools"] = kept
+            elif container == "data.optional_params.tools":
+                data["optional_params"]["tools"] = kept
+            
+            # Log the filtering results
+            total_before = len(tools)
+            total_after = len(kept)
+            
+            query_preview = query[:50] + "..." if len(query) > 50 else query
+            if not query_preview:
+                query_preview = "unknown query"
+            
+            print(f"[MCP] '{query_preview}' | {total_before} → {total_after} ({okta_count} Okta)")
+            
+            if okta_count < len(all_okta_tools):
+                print(f"[MCP DEBUG] Filtered out {len(all_okta_tools) - okta_count} Okta tools")
+            
             return data
+        
         except Exception as e:
             print(f"[MCP ERROR] {e}")
             import traceback
@@ -1132,7 +1214,8 @@ class McpOnlyToolsHandler(CustomLogger):
 proxy_handler_instance = McpOnlyToolsHandler()
 
 
-EOF
+CALLBACK_EOF
+
 
 
 # Create Loki config
