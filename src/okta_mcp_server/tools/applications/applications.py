@@ -14,7 +14,7 @@ def list_applications(
     limit: int = 20,
     after: Optional[str] = None,
     filter: Optional[str] = None
-) -> Dict[str, Any]:
+) -> str:  # ✅ Changed to str
     """List all applications in the Okta organization.
 
     Args:
@@ -23,7 +23,7 @@ def list_applications(
         filter: Filter expression (e.g., 'status eq "ACTIVE"')
 
     Returns:
-        Dict containing list of applications
+        String containing formatted list of applications
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Listing applications limit={limit}")
@@ -38,16 +38,36 @@ def list_applications(
         client = get_client()
         apps = client.get("/api/v1/apps", params=params)
         logger.info(f"[caller={caller}] Found {len(apps)} applications")
-        return {
-            "applications": apps,
-            "count": len(apps)
-        }
+        
+        if not apps:
+            return "No applications found."
+
+        # ✅ Format as readable string
+        lines = [f"Found {len(apps)} applications:\n"]
+        
+        for app in apps:
+            app_name = app.get("label", "N/A")
+            app_id = app.get("id", "N/A")
+            app_status = app.get("status", "N/A")
+            sign_on_mode = app.get("signOnMode", "N/A")
+            
+            lines.append(
+                f"• {app_name} (ID: {app_id})\n"
+                f"  Status: {app_status}, Sign-on: {sign_on_mode}"
+            )
+
+        return "\n".join(lines)
+
     except PermissionError as e:
-        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
-        raise
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg
+        
     except Exception as e:
-        logger.error(f"[caller={caller}] Error listing applications: {str(e)}")
-        raise
+        msg = f"❌ Error listing applications: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg
+
 
 @mcp.tool()
 def get_application(

@@ -10,10 +10,10 @@ from okta_mcp_server.oauth_jwt_client import get_client
 
 @mcp.tool()
 def list_groups( 
-    limit: int = 100,  # ✅ Fixed: Always int
+    limit: int = 100,
     query: Optional[str] = None,
     ctx: Context | None = None
-) -> dict:
+) -> str:  # ✅ Simple string return
     """List Okta groups (requires groups.read scope)."""
     caller = get_caller_email()
 
@@ -21,7 +21,7 @@ def list_groups(
     if query in ("null", "", None):
         query = None
 
-    # ✅ Normalize limit (handle string inputs from LLMs)
+    # Normalize limit
     try:
         limit_int = int(limit) if isinstance(limit, (str, int)) else 100
     except (TypeError, ValueError):
@@ -29,30 +29,38 @@ def list_groups(
 
     logger.info(f"[caller={caller}] listing groups query={query}, limit={limit_int}")
 
-    client = get_client()
-    params = {"limit": limit_int}
-    if query:
-        params["q"] = query
+    try:
+        client = get_client()
+        params = {"limit": limit_int}
+        if query:
+            params["q"] = query
 
-    groups = client.get("/api/v1/groups", params=params)
-    logger.info(f"[caller={caller}] Found {len(groups)} groups")
+        groups = client.get("/api/v1/groups", params=params)
+        logger.info(f"[caller={caller}] Found {len(groups)} groups")
 
-    # Return clean list
-    simplified = [
-        {
-            "id": g.get("id"),
-            "name": (g.get("profile") or {}).get("name"),
-            "description": (g.get("profile") or {}).get("description"),
-            "type": g.get("type"),
-        }
-        for g in groups
-    ]
+        if not groups:
+            return "No groups found."
 
-    return {
-        "groups": simplified,
-        "count": len(simplified),
-        "query": query,
-    }
+        # Format as readable string
+        lines = [f"Found {len(groups)} groups:\n"]
+        
+        for g in groups:
+            profile = g.get("profile") or {}
+            lines.append(
+                f"• {profile.get('name', 'N/A')} "
+                f"(ID: {g.get('id', 'N/A')}, "
+                f"Type: {g.get('type', 'N/A')})"
+            )
+            if profile.get("description"):
+                lines.append(f"  Description: {profile.get('description')}")
+
+        return "\n".join(lines)
+
+    except PermissionError as e:
+        return f"❌ Permission denied: {str(e)}"
+    except Exception as e:
+        return f"❌ Error listing groups: {str(e)}"
+
 
 
 @mcp.tool()

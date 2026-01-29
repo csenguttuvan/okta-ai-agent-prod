@@ -45,7 +45,7 @@ def list_users(
     limit: int = 100,
     query: Optional[str] = None,
     ctx: Context | None = None
-) -> dict:
+) -> str:  # ✅ Changed to str
     """List Okta users (requires users.read scope)."""
     caller = get_caller_email()
 
@@ -58,18 +58,46 @@ def list_users(
     if query:
         params["search"] = query
 
-    client = get_client()
-    users = client.get("/api/v1/users", params=params)
+    try:
+        client = get_client()
+        users = client.get("/api/v1/users", params=params)
+        
+        normalized = [_normalize_user(u) for u in users]
+        
+        logger.info(f"[caller={caller}] Found {len(normalized)} users")
 
-    normalized = [_normalize_user(u) for u in users]
+        if not normalized:
+            return "No users found."
 
-    logger.info(f"[caller={caller}] Found {len(normalized)} users")
+        # ✅ Format as readable string
+        lines = [f"Found {len(normalized)} users:\n"]
+        
+        for user in normalized:
+            email = user.get("email", "N/A")
+            first_name = user.get("firstName", "")
+            last_name = user.get("lastName", "")
+            status = user.get("status", "N/A")
+            user_id = user.get("id", "N/A")
+            
+            full_name = f"{first_name} {last_name}".strip() or "N/A"
+            
+            lines.append(
+                f"• {full_name} ({email})\n"
+                f"  ID: {user_id}, Status: {status}"
+            )
 
-    return {
-        "users": normalized,
-        "count": len(normalized),
-        "query": query
-    }
+        return "\n".join(lines)
+
+    except PermissionError as e:
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg
+        
+    except Exception as e:
+        msg = f"❌ Error listing users: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg
+
 
 
 @mcp.tool()
