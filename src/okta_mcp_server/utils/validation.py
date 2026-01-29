@@ -321,3 +321,19 @@ def validate_params(**validators) -> None:
         if not is_valid:
             logger.error(f"Validation failed for {param_name}: {error_message}")
             raise ValidationError(error_message)
+
+def validate_and_return(
+    is_valid: bool,
+    error_message: Optional[str],
+    log_context: Optional[str] = None
+) -> Tuple[bool, Optional[str]]:
+    """
+    ✅ NEW - Helper to log validation errors WITHOUT raising exceptions.
+    Bedrock-compatible: returns validation result for tools to return as strings.
+    """
+    if not is_valid:
+        if log_context:
+            logger.error(f"{log_context} {error_message}")
+        else:
+            logger.error(error_message)
+    return is_valid, error_message

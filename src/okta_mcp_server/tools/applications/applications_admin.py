@@ -1098,46 +1098,42 @@ def delete_application(
     app_id: str,
     confirm_deletion: bool = False,
     ctx: Context = None
-) -> dict:
+) -> str:  # ✅ Changed return type to str
     """Delete an Okta application (requires okta.apps.manage scope).
     
-    ⚠️ DESTRUCTIVE OPERATION - Cannot be undone.
-    Application must be deactivated first.
+    ⚠️ DESTRUCTIVE OPERATION - Cannot be undone. Application must be deactivated first.
     
     Args:
         app_id: The Okta application ID (format: 0oa1234567890123456)
         confirm_deletion: Must be True to proceed (prevents accidental deletion)
         ctx: Optional context
-        
+    
     Returns:
-        Dict with operation status
-        
-    Note:
-        - Application MUST be INACTIVE before deletion
-        - All user assignments will be removed
-        - SSO configurations will be lost permanently
+        String message with operation status
     """
     caller = get_caller_email()
     
+    # ✅ VALIDATION - NO EXCEPTIONS
+    is_valid, error = validate_okta_id(app_id, "app", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    is_valid, error = validate_boolean(confirm_deletion, required=True, field_name="confirm_deletion")
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    if not confirm_deletion:
+        msg = "❌ Deletion not confirmed. Set confirm_deletion=True to proceed. ⚠️ This is a PERMANENT operation that CANNOT be undone."
+        logger.warning(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    logger.warning(f"[{caller}] ⚠️ DESTRUCTIVE: Attempting to delete application {app_id}")
+    
     try:
-        # ✅ VALIDATION
-        is_valid, error = validate_okta_id(app_id, "app", required=True)
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        is_valid, error = validate_boolean(confirm_deletion, required=True, field_name="confirm_deletion")
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        if not confirm_deletion:
-            logger.warning(f"[{caller}] Deletion not confirmed for app {app_id}")
-            return {
-                "success": False,
-                "error": "Deletion not confirmed",
-                "message": "Set confirm_deletion=True to proceed with application deletion",
-                "app_id": app_id,
-                "warning": "⚠️ This is a permanent operation that CANNOT be undone"
-            }
-        
-        logger.warning(f"[{caller}] ⚠️ DESTRUCTIVE: Attempting to delete application {app_id}")
         client = get_client()
         
         # Get app info before deletion
@@ -1145,73 +1141,44 @@ def delete_application(
         app_name = app.get("label")
         app_status = app.get("status")
         
-        # Verify app is INACTIVE (Okta requirement)
+        # Check if app needs to be deactivated first
         if app_status != "INACTIVE":
-            logger.warning(
-                f"[{caller}] Cannot delete application {app_name} - "
-                f"status is {app_status}, must be INACTIVE"
-            )
-            return {
-                "success": False,
-                "error": f"Application must be INACTIVE before deletion. Current status: {app_status}",
-                "app_id": app_id,
-                "app_name": app_name,
-                "current_status": app_status,
-                "message": "Please deactivate the application first using deactivate_application()",
-                "required_status": "INACTIVE"
-            }
+            msg = f"❌ Application '{app_name}' must be INACTIVE before deletion. Current status: {app_status}. Please deactivate it first using deactivate_application()."
+            logger.warning(f"[{caller}] {msg}")
+            return msg  # ✅ Return string
         
-        # Enhanced audit log
+        # Audit log
         logger.error(
             f"AUDIT: Application deletion | "
             f"caller={caller} | "
             f"target_app={app_name} | "
-            f"target_app_id={app_id} | "
-            f"WARNING: PERMANENT_DELETION"
+            f"target_app_id={app_id}"
         )
         
         # Delete application
         client.delete(f"/api/v1/apps/{app_id}")
         
-        logger.error(f"[{caller}] ⚠️ DELETED application: {app_name} (PERMANENT)")
+        msg = f"⚠️ DELETED application '{app_name}' PERMANENTLY. This operation cannot be undone."
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Success string
         
-        return {
-            "success": True,
-            "message": f"Application '{app_name}' deleted permanently",
-            "app_id": app_id,
-            "app_name": app_name,
-            "deleted_by": caller,
-            "warning": "This operation is permanent and cannot be undone"
-        }
-        
-    except ValidationError as e:
-        logger.error(f"[{caller}] Validation error: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "app_id": app_id
-        }
     except PermissionError as e:
-        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
-        return {
-            "success": False,
-            "error": f"Permission denied: {str(e)}",
-            "app_id": app_id
-        }
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
+        
     except Exception as e:
-        logger.error(f"[{caller}] ❌ Error deleting application: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "app_id": app_id
-        }
+        msg = f"❌ Error deleting application: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
+
     
 
 @mcp.tool()
 def deactivate_application(
     app_id: str,
     ctx: Context = None
-) -> dict:
+) -> str:  # ✅ Changed return type to str
     """Deactivate an Okta application (requires okta.apps.manage scope).
     
     ⚠️ This disables SSO for the application but does not delete it.
@@ -1220,18 +1187,22 @@ def deactivate_application(
     Args:
         app_id: The Okta application ID (format: 0oa1234567890123456)
         ctx: Optional context
-        
+    
     Returns:
-        Dict with operation status
+        String message with operation status
     """
     caller = get_caller_email()
     
+    # ✅ VALIDATION - NO EXCEPTIONS
+    is_valid, error = validate_okta_id(app_id, "app", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    logger.info(f"[{caller}] Deactivating application: {app_id}")
+    
     try:
-        # ✅ VALIDATION
-        is_valid, error = validate_okta_id(app_id, "app", required=True)
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        logger.info(f"[{caller}] Deactivating application: {app_id}")
         client = get_client()
         
         # Get app info
@@ -1241,13 +1212,9 @@ def deactivate_application(
         
         # Check if already inactive
         if current_status == "INACTIVE":
-            return {
-                "success": False,
-                "error": "Application is already inactive",
-                "app_id": app_id,
-                "app_name": app_name,
-                "status": current_status
-            }
+            msg = f"❌ Application '{app_name}' is already inactive (status: {current_status})"
+            logger.warning(f"[{caller}] {msg}")
+            return msg  # ✅ Return string
         
         # Audit log
         logger.warning(
@@ -1260,45 +1227,27 @@ def deactivate_application(
         # Deactivate application
         client.post(f"/api/v1/apps/{app_id}/lifecycle/deactivate", data={})
         
-        logger.warning(f"[{caller}] ⚠️ Application deactivated: {app_name}")
+        msg = f"✅ Application '{app_name}' deactivated successfully. Can be reactivated or permanently deleted."
+        logger.warning(f"[{caller}] {msg}")
+        return msg  # ✅ Success string
         
-        return {
-            "success": True,
-            "message": f"Application '{app_name}' deactivated successfully",
-            "app_id": app_id,
-            "app_name": app_name,
-            "deactivated_by": caller,
-            "note": "Application can be reactivated or permanently deleted"
-        }
-        
-    except ValidationError as e:
-        logger.error(f"[{caller}] Validation error: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "app_id": app_id
-        }
     except PermissionError as e:
-        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
-        return {
-            "success": False,
-            "error": f"Permission denied: {str(e)}",
-            "app_id": app_id
-        }
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
+        
     except Exception as e:
-        logger.error(f"[{caller}] ❌ Error deactivating application: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "app_id": app_id
-        }
+        msg = f"❌ Error deactivating application: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
+
     
 @mcp.tool()
 def unassign_user_from_application(
     app_id: str,
     user_id: str,
     ctx: Context = None
-) -> dict:
+) -> str:  # ✅ Changed return type to str
     """Remove a user's assignment from an application (requires okta.apps.manage scope).
     
     ⚠️ This removes the user's access to the application.
@@ -1307,21 +1256,28 @@ def unassign_user_from_application(
         app_id: The Okta application ID (format: 0oa1234567890123456)
         user_id: The Okta user ID (format: 00u1234567890123456)
         ctx: Optional context
-        
+    
     Returns:
-        Dict with operation status
+        String message with operation status
     """
     caller = get_caller_email()
     
+    # ✅ VALIDATION - NO EXCEPTIONS
+    is_valid, error = validate_okta_id(app_id, "app", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    is_valid, error = validate_okta_id(user_id, "user", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    logger.info(f"[{caller}] Unassigning user {user_id} from app {app_id}")
+    
     try:
-        # ✅ VALIDATION
-        is_valid, error = validate_okta_id(app_id, "app", required=True)
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        is_valid, error = validate_okta_id(user_id, "user", required=True)
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        logger.info(f"[{caller}] Unassigning user {user_id} from app {app_id}")
         client = get_client()
         
         # Get names for better logging
@@ -1341,39 +1297,16 @@ def unassign_user_from_application(
         # Unassign user from app
         client.delete(f"/api/v1/apps/{app_id}/users/{user_id}")
         
-        logger.info(f"[{caller}] User {user_email} unassigned from app {app_name}")
+        msg = f"✅ User {user_email} unassigned from application '{app_name}' successfully."
+        logger.info(f"[{caller}] {msg}")
+        return msg  # ✅ Success string
         
-        return {
-            "success": True,
-            "message": f"User {user_email} unassigned from application '{app_name}'",
-            "app_id": app_id,
-            "app_name": app_name,
-            "user_id": user_id,
-            "user_email": user_email,
-            "unassigned_by": caller
-        }
-        
-    except ValidationError as e:
-        logger.error(f"[{caller}] Validation error: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "app_id": app_id,
-            "user_id": user_id
-        }
     except PermissionError as e:
-        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
-        return {
-            "success": False,
-            "error": f"Permission denied: {str(e)}",
-            "app_id": app_id,
-            "user_id": user_id
-        }
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
+        
     except Exception as e:
-        logger.error(f"[{caller}] ❌ Error unassigning user from app: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "app_id": app_id,
-            "user_id": user_id
-        }
+        msg = f"❌ Error unassigning user from app: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string

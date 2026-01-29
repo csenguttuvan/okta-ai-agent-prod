@@ -8,6 +8,13 @@ from okta_mcp_server.context import get_caller_email, get_caller_groups
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
 
+from okta_mcp_server.utils.validation import (
+    validate_okta_id,
+    validate_boolean,
+    validate_and_raise,
+    ValidationError,
+)
+
 
 @mcp.tool()
 def search_groups_fuzzy(
@@ -110,7 +117,6 @@ def search_groups_fuzzy(
         raise
 
 
-
 @mcp.tool()
 def get_group(group_id: str, ctx: Context | None = None) -> dict:
     """Get details for a specific group (requires groups.read scope)."""
@@ -199,7 +205,7 @@ def delete_group(
     group_id: str,
     confirm_deletion: bool = False,
     ctx: Context = None
-) -> dict:
+) -> str:  # ✅ Returns string, not dict
     """Delete an Okta group (requires okta.groups.manage scope).
     
     ⚠️ DESTRUCTIVE OPERATION - Cannot be undone.
@@ -208,10 +214,10 @@ def delete_group(
         group_id: The Okta group ID (format: 00g1234567890123456)
         confirm_deletion: Must be True to proceed (prevents accidental deletion)
         ctx: Optional context
-        
+    
     Returns:
-        Dict with operation status
-        
+        String message with operation status
+    
     Note:
         - Built-in groups (like "Everyone") cannot be deleted
         - All group memberships will be removed
@@ -219,25 +225,27 @@ def delete_group(
     """
     caller = get_caller_email()
     
+    # ✅ VALIDATION - NO EXCEPTIONS
+    is_valid, error = validate_okta_id(group_id, "group", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string, don't raise
+    
+    is_valid, error = validate_boolean(confirm_deletion, required=True, field_name="confirm_deletion")
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    if not confirm_deletion:
+        msg = "❌ Deletion not confirmed. Set confirm_deletion=True to proceed. ⚠️ This is a PERMANENT operation that CANNOT be undone."
+        logger.warning(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    logger.warning(f"[{caller}] ⚠️ DESTRUCTIVE: Attempting to delete group {group_id}")
+    
     try:
-        # ✅ VALIDATION
-        is_valid, error = validate_okta_id(group_id, "group", required=True)
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        is_valid, error = validate_boolean(confirm_deletion, required=True, field_name="confirm_deletion")
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        if not confirm_deletion:
-            logger.warning(f"[{caller}] Deletion not confirmed for group {group_id}")
-            return {
-                "success": False,
-                "error": "Deletion not confirmed",
-                "message": "Set confirm_deletion=True to proceed with group deletion",
-                "group_id": group_id,
-                "warning": "⚠️ This is a permanent operation that CANNOT be undone"
-            }
-        
-        logger.warning(f"[{caller}] ⚠️ DESTRUCTIVE: Attempting to delete group {group_id}")
         client = get_client()
         
         # Get group info before deletion
@@ -247,15 +255,9 @@ def delete_group(
         
         # Check if it's a built-in group
         if group_type == "BUILT_IN":
-            logger.error(f"[{caller}] Cannot delete built-in group: {group_name}")
-            return {
-                "success": False,
-                "error": "Cannot delete built-in groups",
-                "group_id": group_id,
-                "group_name": group_name,
-                "group_type": group_type,
-                "message": "Built-in groups like 'Everyone' are protected by Okta"
-            }
+            msg = f"❌ Cannot delete built-in group '{group_name}'. Built-in groups like 'Everyone' are protected by Okta."
+            logger.error(f"[{caller}] {msg}")
+            return msg  # ✅ Return string
         
         # Enhanced audit log
         logger.error(
@@ -269,38 +271,21 @@ def delete_group(
         # Delete group
         client.delete(f"/api/v1/groups/{group_id}")
         
-        logger.error(f"[{caller}] ⚠️ DELETED group: {group_name} (PERMANENT)")
+        msg = f"⚠️ DELETED group '{group_name}' PERMANENTLY. This operation cannot be undone."
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Success string
         
-        return {
-            "success": True,
-            "message": f"Group '{group_name}' deleted permanently",
-            "group_id": group_id,
-            "group_name": group_name,
-            "deleted_by": caller,
-            "warning": "This operation is permanent and cannot be undone"
-        }
-        
-    except ValidationError as e:
-        logger.error(f"[{caller}] Validation error: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "group_id": group_id
-        }
     except PermissionError as e:
-        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
-        return {
-            "success": False,
-            "error": f"Permission denied: {str(e)}",
-            "group_id": group_id
-        }
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
+        
     except Exception as e:
-        logger.error(f"[{caller}] ❌ Error deleting group: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "group_id": group_id
-        }
+        msg = f"❌ Error deleting group: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
+
+
 
 @mcp.tool()
 def preview_group_deletion_impact(
@@ -484,7 +469,7 @@ def remove_user_from_group(
     group_id: str,
     user_id: str,
     ctx: Context = None
-) -> dict:
+) -> str:  # ✅ Changed return type to str
     """Remove a user from a group (requires okta.groups.manage scope).
     
     ⚠️ This removes the user's group membership and associated permissions.
@@ -493,21 +478,28 @@ def remove_user_from_group(
         group_id: The Okta group ID (format: 00g1234567890123456)
         user_id: The Okta user ID (format: 00u1234567890123456)
         ctx: Optional context
-        
+    
     Returns:
-        Dict with operation status
+        String message with operation status
     """
     caller = get_caller_email()
     
+    # ✅ VALIDATION - NO EXCEPTIONS
+    is_valid, error = validate_okta_id(group_id, "group", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    is_valid, error = validate_okta_id(user_id, "user", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Return string
+    
+    logger.info(f"[{caller}] Removing user {user_id} from group {group_id}")
+    
     try:
-        # ✅ VALIDATION
-        is_valid, error = validate_okta_id(group_id, "group", required=True)
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        is_valid, error = validate_okta_id(user_id, "user", required=True)
-        validate_and_raise(is_valid, error, f"[{caller}]")
-        
-        logger.info(f"[{caller}] Removing user {user_id} from group {group_id}")
         client = get_client()
         
         # Get names for better logging
@@ -527,111 +519,91 @@ def remove_user_from_group(
         # Remove user from group
         client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
         
-        logger.info(f"[{caller}] User {user_email} removed from group {group_name}")
+        msg = f"✅ User {user_email} removed from group '{group_name}' successfully."
+        logger.info(f"[{caller}] {msg}")
+        return msg  # ✅ Success string
         
-        return {
-            "success": True,
-            "message": f"User {user_email} removed from group '{group_name}'",
-            "group_id": group_id,
-            "group_name": group_name,
-            "user_id": user_id,
-            "user_email": user_email,
-            "removed_by": caller
-        }
-        
-    except ValidationError as e:
-        logger.error(f"[{caller}] Validation error: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "group_id": group_id,
-            "user_id": user_id
-        }
     except PermissionError as e:
-        logger.error(f"[{caller}] ❌ Permission denied: {str(e)}")
-        return {
-            "success": False,
-            "error": f"Permission denied: {str(e)}",
-            "group_id": group_id,
-            "user_id": user_id
-        }
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
+        
     except Exception as e:
-        logger.error(f"[{caller}] ❌ Error removing user from group: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "group_id": group_id,
-            "user_id": user_id
-        }
-
+        msg = f"❌ Error removing user from group: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg  # ✅ Error string
 
 
 
 @mcp.tool()
-def remove_users_from_group(
+def remove_user_from_group(
     group_id: str,
-    user_ids: List[str],
-    ctx: Context | None = None
-) -> dict:
-    """Remove multiple users from a group in a single operation.
+    user_id: str,
+    ctx: Context = None
+) -> str:  # ✅ Returns string
+    """Remove a user from a group (requires okta.groups.manage scope).
     
-    Only ACTIVE users will be removed. Non-active users will be skipped.
+    ⚠️ This removes the user's group membership and associated permissions.
     
     Args:
-        group_id: The Okta group ID
-        user_ids: List of Okta user IDs to remove from the group
-        
+        group_id: The Okta group ID (format: 00g1234567890123456)
+        user_id: The Okta user ID (format: 00u1234567890123456)
+        ctx: Optional context
+    
     Returns:
-        Dictionary with removed count, skipped count, and results
+        String message with operation status
     """
     caller = get_caller_email()
-    logger.info(f"[caller={caller}] Batch removing {len(user_ids)} users from group {group_id}")
     
-    client = get_client()
+    # ✅ VALIDATION - NO EXCEPTIONS
+    is_valid, error = validate_okta_id(group_id, "group", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg
     
-    # Import validation function
-    from okta_mcp_server.tools.users.users_admin import _validate_user_is_active
+    is_valid, error = validate_okta_id(user_id, "user", required=True)
+    if not is_valid:
+        msg = f"❌ {error}"
+        logger.error(f"[{caller}] {msg}")
+        return msg
     
-    results = []
-    failed = []
-    skipped_inactive = []
+    logger.info(f"[{caller}] Removing user {user_id} from group {group_id}")
     
-    for user_id in user_ids:
-        try:
-            # Validate user is ACTIVE
-            is_active, error_msg, user = _validate_user_is_active(client, user_id, caller)
-            
-            if not is_active:
-                skipped_inactive.append({
-                    "user_id": user_id,
-                    "status": user.get("status"),
-                    "email": user.get("profile", {}).get("email"),
-                    "reason": error_msg
-                })
-                logger.warning(f"[caller={caller}] ⏭️ Skipped inactive user {user_id} (status: {user.get('status')})")
-                continue
-            
-            client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
-            results.append({"user_id": user_id, "status": "removed"})
-            logger.info(f"[caller={caller}] ✅ Removed user {user_id} from group {group_id}")
-            logger.info(f"tool=remove_users_from_group group_id={group_id} user_id={user_id} result=success")
-            
-        except Exception as e:
-            failed.append({"user_id": user_id, "error": str(e)})
-            logger.error(f"[caller={caller}] ❌ Failed to remove user {user_id}: {str(e)}")
-            logger.error(f"tool=remove_users_from_group group_id={group_id} user_id={user_id} result=error error={str(e)}")
-    
-    return {
-        "success": True,
-        "total": len(user_ids),
-        "removed": len(results),
-        "skipped_inactive": len(skipped_inactive),
-        "failed": len(failed),
-        "results": results,
-        "skipped_users": skipped_inactive if skipped_inactive else None,
-        "failures": failed if failed else None,
-        "message": f"Removed {len(results)} users. Skipped {len(skipped_inactive)} inactive users."
-    }
+    try:
+        client = get_client()
+        
+        # Get names for better logging
+        group = client.get(f"/api/v1/groups/{group_id}")
+        user = client.get(f"/api/v1/users/{user_id}")
+        group_name = group.get("profile", {}).get("name")
+        user_email = user.get("profile", {}).get("email")
+        
+        # Audit log
+        logger.warning(
+            f"AUDIT: Group membership removal | "
+            f"caller={caller} | "
+            f"user={user_email} | "
+            f"group={group_name}"
+        )
+        
+        # Remove user from group
+        client.delete(f"/api/v1/groups/{group_id}/users/{user_id}")
+        
+        msg = f"✅ User {user_email} removed from group '{group_name}' successfully."
+        logger.info(f"[{caller}] {msg}")
+        return msg
+        
+    except PermissionError as e:
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg
+        
+    except Exception as e:
+        msg = f"❌ Error removing user from group: {str(e)}"
+        logger.error(f"[{caller}] {msg}")
+        return msg
+
 
 
 
