@@ -217,8 +217,9 @@ def delete_user(
         user_status = user.get("status")
         
         # Verify user is DEACTIVATED (Okta requirement)
-        if user_status != "DEACTIVATED":
-            msg = f"❌ User {user_email} must be DEACTIVATED before deletion. Current status: {user_status}. Please deactivate the user first using deactivate_user()."
+        if user_status not in ["DEPROVISIONED", "SUSPENDED"]:
+            msg = f"❌ User {user_email} must be DEPROVISIONED before deletion. Current status: {user_status}. Please deactivate the user first using deactivate_user()."
+
             logger.warning(f"[{caller}] {msg}")
             return msg  # ✅ Return string
         
