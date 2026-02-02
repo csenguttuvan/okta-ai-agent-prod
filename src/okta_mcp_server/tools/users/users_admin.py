@@ -333,7 +333,7 @@ def search_users_by_attribute(
     value: str,
     limit: int = 200,
     ctx: Context = None
-) -> dict:
+) -> str:  # ✅ Changed to str
     """Search users by any profile attribute like division, department, title, location, etc.
     
     Common use cases:
@@ -349,7 +349,7 @@ def search_users_by_attribute(
         limit: Maximum number of results (default: 200)
     
     Returns:
-        Dict with 'users' list and 'count'
+        Formatted string with user details
         
     Example:
         To find all users with division="Corp IT":
@@ -372,33 +372,34 @@ def search_users_by_attribute(
         
         users = []
         for user in response:
-            user_data = {
+            users.append({
                 "id": user.get("id"),
                 "email": user.get("profile", {}).get("email"),
                 "firstName": user.get("profile", {}).get("firstName"),
                 "lastName": user.get("profile", {}).get("lastName"),
                 "status": user.get("status"),
                 attribute: user.get("profile", {}).get(attribute)
-            }
-            users.append(user_data)
+            })
         
         logger.info(f"[caller={caller}] Found {len(users)} users with {attribute}={value}")
         
-        return {
-            "success": True,
-            "users": users,
-            "count": len(users),
-            "filter": search_filter
-        }
+        # ✅ Return formatted string instead of nested dict
+        if not users:
+            return f"No users found with {attribute}=\"{value}\""
+        
+        result = f"Found {len(users)} user(s) with {attribute}=\"{value}\":\n\n"
+        for user in users:
+            result += f"• {user['firstName']} {user['lastName']} ({user['email']})\n"
+            result += f"  - Status: {user['status']}\n"
+            result += f"  - ID: {user['id']}\n\n"
+        
+        return result
         
     except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error searching users by attribute: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "users": [],
-            "count": 0
-        }
+        error_msg = f"❌ Error searching users by attribute: {str(e)}"
+        logger.error(f"[caller={caller}] {error_msg}")
+        return error_msg
+
 
 
 @mcp.tool()
@@ -706,7 +707,7 @@ def activate_user(
     user_id: str,
     send_email: bool = False,
     ctx: Context = None
-) -> dict:
+) -> str:  # ✅ Changed from dict to str
     """Activate a user in PROVISIONED status (requires okta.users.manage scope).
     
     This allows activating users that were created but never completed signup.
@@ -718,7 +719,7 @@ def activate_user(
         ctx: Optional context
         
     Returns:
-        Dict with operation status
+        String message with operation status
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Activating user {user_id}")
@@ -732,46 +733,47 @@ def activate_user(
         email = user.get("profile", {}).get("email")
         
         if status == "ACTIVE":
-            return {
-                "success": False,
-                "error": "User is already ACTIVE",
-                "user_id": user_id,
-                "user_email": email,
-                "current_status": status
-            }
+            msg = f"✅ User {email} is already ACTIVE - no activation needed."
+            logger.info(f"[caller={caller}] {msg}")
+            return msg  # ✅ Return string
         
         if status not in ["PROVISIONED", "STAGED"]:
-            return {
-                "success": False,
-                "error": f"User cannot be activated from status '{status}'",
-                "user_id": user_id,
-                "user_email": email,
-                "current_status": status,
-                "message": "Only PROVISIONED or STAGED users can be activated"
-            }
+            msg = (
+                f"❌ User {email} cannot be activated from status '{status}'. "
+                f"Only PROVISIONED or STAGED users can be activated.\n"
+                f"Current status: {status}\n"
+                f"User ID: {user_id}"
+            )
+            logger.warning(f"[caller={caller}] {msg}")
+            return msg  # ✅ Return string
         
         # Activate user
         params = {"sendEmail": str(send_email).lower()}
         client.post(f"/api/v1/users/{user_id}/lifecycle/activate", params=params, data={})
         
-        logger.info(f"[caller={caller}] ✅ Activated user {email}")
+        # Build success message
+        msg = f"✅ User {email} activated successfully!\n"
+        msg += f"  - Previous status: {status}\n"
+        msg += f"  - New status: ACTIVE\n"
+        msg += f"  - User ID: {user_id}\n"
+        msg += f"  - Activated by: {caller}\n"
+        if send_email:
+            msg += f"  - Activation email sent to {email}"
+        else:
+            msg += f"  - No activation email sent (send_email=False)"
         
-        return {
-            "success": True,
-            "message": f"User {email} activated successfully",
-            "user_id": user_id,
-            "user_email": email,
-            "activated_by": caller,
-            "previous_status": status,
-            "new_status": "ACTIVE"
-        }
+        logger.info(f"[caller={caller}] ✅ Activated user {email}")
+        return msg  # ✅ Return string
         
     except PermissionError as e:
-        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
-        raise
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[caller={caller}] {msg}")
+        return msg  # ✅ Return string instead of raising
+        
     except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error activating user: {str(e)}")
-        raise
+        msg = f"❌ Error activating user: {str(e)}"
+        logger.error(f"[caller={caller}] {msg}")
+        return msg  # ✅ Return string instead of raising
 
 
 
@@ -779,7 +781,7 @@ def activate_user(
 def reactivate_user(
     user_id: str,
     ctx: Context = None
-) -> dict:
+) -> str:  # ✅ Changed from dict to str
     """Reactivate a deactivated user (undo deactivation).
     
     Restores access to a previously deactivated user. Only works for DEACTIVATED users.
@@ -790,7 +792,7 @@ def reactivate_user(
         ctx: Optional context
         
     Returns:
-        Dict with operation status
+        String message with operation status
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Attempting to reactivate user: {user_id}")
@@ -804,24 +806,20 @@ def reactivate_user(
         email = user.get("profile", {}).get("email")
         
         if status == "ACTIVE":
-            return {
-                "success": False,
-                "error": "User is already ACTIVE",
-                "user_id": user_id,
-                "user_email": email,
-                "current_status": status,
-                "message": "No action needed - user already has access"
-            }
+            msg = f"✅ User {email} is already ACTIVE - no action needed."
+            logger.info(f"[caller={caller}] {msg}")
+            return msg  # ✅ Return string
         
-        if status != "DEACTIVATED":
-            return {
-                "success": False,
-                "error": f"User cannot be reactivated from status '{status}'",
-                "user_id": user_id,
-                "user_email": email,
-                "current_status": status,
-                "message": "Only DEACTIVATED users can be reactivated. DELETED users cannot be restored."
-            }
+        if status != "DEPROVISIONED":
+            msg = (
+                f"❌ User {email} cannot be reactivated from status '{status}'. "
+                f"Only DEPROVISIONED users can be reactivated.\n"
+                f"DELETED users cannot be restored.\n"
+                f"Current status: {status}\n"
+                f"User ID: {user_id}"
+            )
+            logger.warning(f"[caller={caller}] {msg}")
+            return msg  # ✅ Return string
         
         # Reactivate
         client.post(f"/api/v1/users/{user_id}/lifecycle/reactivate", data={})
@@ -833,22 +831,23 @@ def reactivate_user(
             f"target_user_id={user_id}"
         )
         
-        logger.info(f"[caller={caller}] ✅ Reactivated user {email}")
+        msg = f"✅ User {email} reactivated successfully!\n"
+        msg += f"  - Previous status: DEPROVISIONED\n"
+        msg += f"  - New status: ACTIVE\n"
+        msg += f"  - User ID: {user_id}\n"
+        msg += f"  - Reactivated by: {caller}"
         
-        return {
-            "success": True,
-            "message": f"User {email} reactivated successfully",
-            "user_id": user_id,
-            "user_email": email,
-            "reactivated_by": caller,
-            "previous_status": "DEACTIVATED",
-            "new_status": "ACTIVE"
-        }
+        logger.info(f"[caller={caller}] ✅ Reactivated user {email}")
+        return msg  # ✅ Return string
         
     except PermissionError as e:
-        logger.error(f"[caller={caller}] ❌ Permission denied: {str(e)}")
-        raise
+        msg = f"❌ Permission denied: {str(e)}"
+        logger.error(f"[caller={caller}] {msg}")
+        return msg  # ✅ Return string
+        
     except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error reactivating user: {str(e)}")
-        raise
+        msg = f"❌ Error reactivating user: {str(e)}"
+        logger.error(f"[caller={caller}] {msg}")
+        return msg  # ✅ Return string
+
 
