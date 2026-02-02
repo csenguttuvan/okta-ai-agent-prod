@@ -313,7 +313,7 @@ model_list:
       max_tokens: 4000
       
   # Llama 3.1 70B (open source)
-  - model_name: bedrock-llamater
+  - model_name: bedrock-llama
     litellm_params:
       model: bedrock/eu.meta.llama3-1-3b-instruct-v1:0
       aws_region_name: ${aws_region}
@@ -447,76 +447,117 @@ def _normalize_plural(text: str) -> str:
 def _extract_latest_user_query(messages: list) -> str:
     """Extract ONLY the most recent user query (multi-turn safe)"""
 
-    # 🔍 DEBUG: Print last 2 user messages to see format
-    user_messages = [m for m in messages if m.get("role") == "user"]
-    if user_messages:
-        last_msg = user_messages[-1]
-        print(f"[MCP DEBUG] Last user message content: {str(last_msg.get('content', ''))[:200]}")
-    
-    last_user_msg = None
-    last_tool_msg = None
-    
+    # 🔍 DEBUG: Print last 2 messages to see format
+    if len(messages) >= 2:
+        print(f"[MCP DEBUG] Last message role: {messages[-1].get('role')}")
+        print(
+            f"[MCP DEBUG] Last message content preview: {str(messages[-1].get('content', ''))[:200]}"
+        )
+
+    # Priority 1: Check for user query in tool_result (after attempt_completion)
     for msg in reversed(messages):
-        if msg.get("role") == "tool" and last_tool_msg is None:
-            last_tool_msg = msg
-        if msg.get("role") == "user" and last_user_msg is None:
+        if msg.get("role") == "tool":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                # Look for <user_message> in tool result
+                match = re.search(
+                    r"<user_message>\s*(.+?)\s*</user_message>",
+                    content,
+                    flags=re.DOTALL | re.IGNORECASE,
+                )
+                if match:
+                    query = match.group(1).strip()
+                    query = re.sub(r"<[^>]+>", "", query)
+                    if len(query) > 3:
+                        print(
+                            f"[MCP] 📋 Extracted from tool_result <user_message>: {query[:60]}"
+                        )
+                        return query.lower()
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        text = block.get("text", "")
+                        match = re.search(
+                            r"<user_message>\s*(.+?)\s*</user_message>",
+                            text,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
+                        if match:
+                            query = match.group(1).strip()
+                            query = re.sub(r"<[^>]+>", "", query)
+                            if len(query) > 3:
+                                print(
+                                    f"[MCP] 📋 Extracted from tool_result <user_message>: {query[:60]}"
+                                )
+                                return query.lower()
+
+    # Priority 2: Check last user message
+    last_user_msg = None
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
             last_user_msg = msg
-        if (last_tool_msg or last_user_msg):
             break
-    
-    # Priority 1: Check tool message for <feedback>
-    if last_tool_msg:
-        content = last_tool_msg.get("content", "")
-        if isinstance(content, str) and "<feedback>" in content:
-            feedback_match = re.search(r'<feedback>(.*?)</feedback>', content, flags=re.DOTALL | re.IGNORECASE)
-            if feedback_match:
-                query = feedback_match.group(1).strip()
-                query = re.sub(r'<[^>]+>', '', query)
-                if len(query) > 3:
-                    print(f"[MCP] 📋 Extracted from <feedback>: {query[:60]}")
-                    return query.lower()
-    
-    # Priority 2: Extract from last user message
+
     if last_user_msg:
         content = last_user_msg.get("content", "")
-    
+
         # Handle list format (Roo's standard format)
         if isinstance(content, list):
-            # Process blocks in order and return FIRST non-environment match
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "text":
                     text = block.get("text", "")
-                
+
                     # Skip environment_details blocks
-                    if "<environment_details>" in text and "</environment_details>" in text:
+                    if (
+                        "<environment_details>" in text
+                        and "</environment_details>" in text
+                    ):
                         # But check if query is BEFORE environment_details
                         parts = text.split("<environment_details>")
                         if parts[0].strip() and len(parts[0].strip()) > 5:
                             query = parts[0].strip()
-                            query = re.sub(r'<[^>]+>', '', query)
+                            query = re.sub(r"<[^>]+>", "", query)
                             print(f"[MCP] 📋 Extracted before environment: {query[:60]}")
                             return query.lower()
                         continue
-                
+
                     # Try ALL possible tag formats
-                    for tag in ["user_message", "task", "user_query", "query", "instruction"]:
-                        pattern = f'<{tag}>(.*?)</{tag}>'
-                        match = re.search(pattern, text, flags=re.DOTALL | re.IGNORECASE)
+                    for tag in [
+                        "user_message",
+                        "task",
+                        "user_query",
+                        "query",
+                        "instruction",
+                    ]:
+                        pattern = f"<{tag}>(.*?)</{tag}>"
+                        match = re.search(
+                            pattern, text, flags=re.DOTALL | re.IGNORECASE
+                        )
                         if match:
                             query = match.group(1).strip()
-                            query = re.sub(r'<[^>]+>', '', query)
+                            query = re.sub(r"<[^>]+>", "", query)
                             if len(query) > 3:
                                 print(f"[MCP] 📋 Extracted from <{tag}>: {query[:60]}")
                                 return query.lower()
-                
+
                     # If no tags found but text is short and meaningful, use it
-                    cleaned = re.sub(r'<[^>]+>', '', text).strip()
+                    cleaned = re.sub(r"<[^>]+>", "", text).strip()
                     if cleaned and len(cleaned) < 200 and len(cleaned) > 5:
                         # But skip if it's just environment noise
-                        if not any(noise in cleaned.lower() for noise in ["vscode", "current time", "iso 8601", "time zone"]):
+                        if not any(
+                            noise in cleaned.lower()
+                            for noise in [
+                                "vscode",
+                                "current time",
+                                "iso 8601",
+                                "time zone",
+                                "error",
+                                "reminder",
+                            ]
+                        ):
                             print(f"[MCP] 📋 Extracted from plain text: {cleaned[:60]}")
                             return cleaned.lower()
-        
+
         # Handle string format
         elif isinstance(content, str):
             # Check if query is BEFORE environment_details
@@ -524,83 +565,175 @@ def _extract_latest_user_query(messages: list) -> str:
                 parts = content.split("<environment_details>")
                 if parts[0].strip() and len(parts[0].strip()) > 5:
                     query = parts[0].strip()
-                    query = re.sub(r'<[^>]+>', '', query)
+                    query = re.sub(r"<[^>]+>", "", query)
                     print(f"[MCP] 📋 Extracted before environment: {query[:60]}")
                     return query.lower()
-            
+
             # Try ALL possible tag formats
             for tag in ["user_message", "task", "user_query", "query", "instruction"]:
-                pattern = f'<{tag}>(.*?)</{tag}>'
+                pattern = f"<{tag}>(.*?)</{tag}>"
                 match = re.search(pattern, content, flags=re.DOTALL | re.IGNORECASE)
                 if match:
                     query = match.group(1).strip()
-                    query = re.sub(r'<[^>]+>', '', query)
+                    query = re.sub(r"<[^>]+>", "", query)
                     if len(query) > 3:
                         print(f"[MCP] 📋 Extracted from <{tag}>: {query[:60]}")
                         return query.lower()
-            
-            # Fallback: strip environment details and extract first meaningful line
-            cleaned = re.sub(r'<environment_details>.*?</environment_details>', '', content, flags=re.DOTALL | re.IGNORECASE)
-            lines = cleaned.split('\n')
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith('<') and '>' in line:
-                    tag_text = re.sub(r'<[^>]+>', '', line)
-                    if len(tag_text.strip()) > 3:
-                        print(f"[MCP] 📋 Extracted from inline tag: {tag_text[:60]}")
-                        return tag_text.strip().lower()
-                if line.startswith('#'):
-                    continue
-                if len(line) > 10:
-                    print(f"[MCP] 📋 Extracted from plain text: {line[:60]}")
-                    return line.lower()
-    
-    # Priority 3: Check previous user message (sometimes Roo's query is earlier)
-    if len(user_messages) >= 2:
-        prev_msg = user_messages[-2]
-        content = prev_msg.get("content", "")
-        
-        if isinstance(content, str) and len(content) > 5 and len(content) < 200:
-            # Simple string queries like "remove all users from group"
-            cleaned = re.sub(r'<[^>]+>', '', content).strip()
-            if cleaned and not any(noise in cleaned.lower() for noise in ["vscode", "current time"]):
-                print(f"[MCP] 📋 Extracted from previous message: {cleaned[:60]}")
-                return cleaned.lower()
-    
+
     print("[MCP] ⚠️ No query extracted, using defaults")
     return ""
 
-def _compress_tool_response(content: str) -> str:
-    """Strip verbose fields from Okta API tool responses"""
+
+# 🆕 ADD THESE TWO NEW FUNCTIONS HERE (before _get_relevant_tools)
+def _compress_system_prompt_gentle(prompt: str) -> str:
+    """
+    Gently compress system prompt while preserving critical sections.
+    """
+    if not prompt or len(prompt) < 1000:
+        return prompt
+    
+    # Critical patterns that MUST be preserved
+    critical_sections = [
+        "attempt_completion",
+        "ask_followup_question", 
+        "tool in your previous response",
+        "Instructions for Tool Use",
+        "Next Steps",
+        "Reminder:",
+        "[ERROR]",
+        "tool calling mechanism",
+        "required parameters",
+        "MCP",
+        "okta-admin"
+    ]
+    
+    lines = prompt.split('\n')
+    kept_lines = []
+    skip_next = False
+    
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
+        
+        # Always keep critical instruction lines
+        is_critical = any(pattern.lower() in line_lower for pattern in critical_sections)
+        
+        if is_critical:
+            kept_lines.append(line)
+            skip_next = False
+            continue
+        
+        # Remove verbose example blocks (but keep short examples)
+        if any(marker in line_lower for marker in ["example:", "for example:", "e.g.,"]):
+            if len(line) < 100:
+                kept_lines.append(line)
+            else:
+                skip_next = True
+            continue
+        
+        if skip_next:
+            if line.strip() and not line.strip().startswith(('#', '-', '*', '>')):
+                continue
+            else:
+                skip_next = False
+        
+        # Remove excessive whitespace
+        if not line.strip():
+            if kept_lines and kept_lines[-1].strip():
+                kept_lines.append("")
+            continue
+        
+        # Remove repetitive formatting guidelines
+        if any(phrase in line_lower for phrase in [
+            "always ensure",
+            "remember to",
+            "keep in mind",
+            "note that",
+            "important:",
+            "tip:",
+            "best practice:"
+        ]):
+            if any(kw in line_lower for kw in ["tool", "mcp", "attempt_completion", "parameter"]):
+                kept_lines.append(line)
+            continue
+        
+        # Keep everything else
+        kept_lines.append(line)
+    
+    # Join and clean up excessive blank lines
+    compressed = '\n'.join(kept_lines)
+    while '\n\n\n' in compressed:
+        compressed = compressed.replace('\n\n\n', '\n\n')
+    
+    return compressed.strip()
+
+
+def _compress_tool_response_gentle(content: str) -> str:
+    """
+    Gently compress tool responses by removing redundant verbose fields.
+    """
     try:
         import json
         data = json.loads(content)
         
-        # If it's a list, limit to first 20 items
-        if isinstance(data, list) and len(data) > 20:
-            truncated_count = len(data) - 20
-            data = data[:20]
-            data.append({"_truncated": f"... and {truncated_count} more items"})
-        
-        # Remove verbose Okta fields
-        def strip_verbose(obj):
+        def strip_redundant(obj, depth=0):
+            """Recursively remove verbose fields while keeping essentials"""
+            
+            if depth > 10:
+                return obj
+            
             if isinstance(obj, dict):
-                essential = ['id', 'name', 'email', 'status', 'label', 'type', 
-                            'description', 'firstName', 'lastName', 'login', 
-                            'profile', 'success', 'error', 'message']
-                return {k: strip_verbose(v) for k, v in obj.items() if k in essential}
+                essential = {
+                    'id', 'name', 'email', 'status', 'label', 'type', 'description',
+                    'firstName', 'lastName', 'login', 'profile', 'created', 'activated',
+                    'statusChanged', 'lastLogin', 'lastUpdated', 'passwordChanged',
+                    'success', 'error', 'message', 'count', 'results', 'data',
+                    'userId', 'groupId', 'appId', 'credentials', 'provider'
+                }
+                
+                verbose = {'_links', '_embedded', '_meta', 'self', 'schema'}
+                
+                cleaned = {}
+                for k, v in obj.items():
+                    if k in verbose:
+                        continue
+                    
+                    if k in essential:
+                        if isinstance(v, (dict, list)):
+                            cleaned[k] = strip_redundant(v, depth + 1)
+                        else:
+                            cleaned[k] = v
+                    elif depth < 3:
+                        if isinstance(v, (dict, list)):
+                            cleaned[k] = strip_redundant(v, depth + 1)
+                        else:
+                            cleaned[k] = v
+                
+                return cleaned
+            
             elif isinstance(obj, list):
-                return [strip_verbose(item) for item in obj[:20]]
+                max_items = 50
+                if len(obj) > max_items:
+                    truncated = [strip_redundant(item, depth + 1) for item in obj[:max_items]]
+                    truncated.append({
+                        "_truncated": f"... and {len(obj) - max_items} more items (total: {len(obj)})"
+                    })
+                    return truncated
+                else:
+                    return [strip_redundant(item, depth + 1) for item in obj]
+            
             return obj
         
-        data = strip_verbose(data)
-        return json.dumps(data, separators=(',', ':'))
-    except:
-        if len(content) > 1000:
-            return content[:1000] + f"... [truncated {len(content) - 1000} chars]"
+        compressed_data = strip_redundant(data)
+        return json.dumps(compressed_data, separators=(',', ':'), ensure_ascii=False)
+    
+    except json.JSONDecodeError:
+        if len(content) > 2000:
+            return content[:2000] + f"\n\n[... truncated {len(content) - 2000} chars for token efficiency]"
         return content
+    except Exception as e:
+        print(f"[MCP DEBUG] Tool response compression failed: {e}")
+        return content
+
 
 def _get_relevant_tools(messages: list) -> Set[str]:
     msg = _extract_latest_user_query(messages)
@@ -623,6 +756,24 @@ def _get_relevant_tools(messages: list) -> Set[str]:
     add_tool("check_permissions")
     add_tool("checkpermissions")  # No underscore variant
     
+    # 🆕 ADD THIS: Context detection for follow-up queries
+    # Check if previous tool calls indicate user/group operations
+    recent_context = {"user": False, "group": False, "app": False}
+    for m in reversed(messages[-5:]):  # Check last 5 messages
+        if m.get("role") == "assistant":
+            content = m.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_name = block.get("name", "").lower()
+                        if "user" in tool_name:
+                            recent_context["user"] = True
+                        if "group" in tool_name:
+                            recent_context["group"] = True
+                        if "app" in tool_name or "application" in tool_name:
+                            recent_context["app"] = True
+
+
     if not msg or len(msg) < 3:
         add_tool("list_users")
         add_tool("listusers")
@@ -708,15 +859,25 @@ def _get_relevant_tools(messages: list) -> Set[str]:
         add_tool("finduser")
         add_tool("get_user")
         add_tool("getuser")
-    if "delete" in msg and "user" in msg and "group" not in msg:
-        add_tool("delete_user")
-        add_tool("deleteuser")
-        add_tool("deactivateuser")
-        add_tool("deactivate_user")
-        add_tool("find_user")
-        add_tool("finduser")
-        add_tool("get_user")
-        add_tool("getuser")
+    if "delete" in msg:
+        # Explicit: "delete user X"
+        if "user" in msg and "group" not in msg:
+            print(f"[MCP DEBUG] 🔴 DELETE USER MATCHED! msg='{msg}'")
+            add_tool("delete_user")
+            add_tool("deleteuser")
+            add_tool("deactivate_user")
+            add_tool("deactivateuser")
+            add_tool("find_user")
+            add_tool("finduser")
+        # Implicit: "yes, delete permanently" after user operations
+        elif recent_context["user"] and not recent_context["group"]:
+            print(f"[MCP DEBUG] 🔄 Implicit user deletion from context! msg='{msg}'")
+            add_tool("delete_user")
+            add_tool("deleteuser")
+            add_tool("deactivate_user")
+            add_tool("deactivateuser")
+            add_tool("find_user")
+            add_tool("finduser")
     if any(w in msg for w in ["what group", "which group", "user group", "user's group"]) and "user" in msg:
         add_tool("get_user_groups")
         add_tool("getusergroups")
@@ -819,6 +980,19 @@ def _get_relevant_tools(messages: list) -> Set[str]:
             add_tool("listgroupusers")
             add_tool("remove_users_from_group")
             add_tool("removeusersfromgroup")
+    elif "delete" in msg and recent_context["group"] and not recent_context["user"]:
+        # User said something like "yes, delete it" after working with groups
+        add_tool("delete_group")
+        add_tool("deletegroup")
+        add_tool("search_groups_fuzzy")
+        add_tool("searchgroupsfuzzy")
+        add_tool("get_group")
+        add_tool("getgroup")
+        add_tool("list_groups")
+        add_tool("listgroups")
+        add_tool("preview_group_deletion_impact")
+        add_tool("previewgroupdeletionimpact")
+        print("[MCP DEBUG] 🔄 Implicit group deletion detected from context")
     if any(w in msg for w in ["add", "assign", "join"]) and "group" in msg:
         add_tool("add_user_to_group")
         add_tool("addusertogroup")
@@ -1091,14 +1265,33 @@ def _ultra_slim_tool(t: Dict[str, Any]) -> Dict[str, Any]:
     required = params.get("required", [])
     minimal_props = {}
     for key, prop in props.items():
-        desc = prop.get("description", "").split('.')[0].split('\n')[0][:60].strip()
+        # Keep first sentence of description + emphasize parameter name
+        desc = prop.get("description", "").split('.')[0].split('\n')[0][:80].strip()  # Increased from 60 to 80
         minimal_props[key] = {"type": prop.get("type", "string"), "description": desc}
         if prop.get("enum"):
             minimal_props[key]["enum"] = prop["enum"][:]
+    
+    # Keep function description concise but complete
     func_desc = '.'.join(fn.get("description", "").split('.')[:2]).strip()
     if func_desc and not func_desc.endswith('.'):
         func_desc += '.'
-    return {"type": "function", "function": {"name": fn.get("name", ""), "description": func_desc, "parameters": {"type": "object", "properties": minimal_props, "required": required[:] if required else []}}}
+    
+    # Add parameter hint to description
+    if required:
+        func_desc += f" Required: {', '.join(required)}."
+    
+    return {
+        "type": "function",
+        "function": {
+            "name": fn.get("name", ""),
+            "description": func_desc,
+            "parameters": {
+                "type": "object",
+                "properties": minimal_props,
+                "required": required[:] if required else []
+            }
+        }
+    }
 
 
 class McpOnlyToolsHandler(CustomLogger):
@@ -1118,26 +1311,26 @@ class McpOnlyToolsHandler(CustomLogger):
             messages = _prune_conversation(messages, max_history=4)
             data["messages"] = messages
             
-            # 🔧 OPTIMIZATION 2: Replace verbose system prompt with slim version
+            # 🔧 OPTIMIZATION 2: Gentle system prompt compression (preserves critical sections)
             if messages and messages[0].get("role") == "system":
-                original_length = len(messages[0].get("content", ""))
-                messages[0]["content"] = SLIM_SYSTEM_PROMPT
-                new_length = len(SLIM_SYSTEM_PROMPT)
-                print(f"[MCP] 📝 Compressed system prompt: {original_length} → {new_length} chars ({original_length - new_length} saved)")
+                original_prompt = messages[0].get("content", "")
+                compressed_prompt = _compress_system_prompt_gentle(original_prompt)
+                
+                if len(compressed_prompt) < len(original_prompt):
+                    messages[0]["content"] = compressed_prompt
+                    saved = len(original_prompt) - len(compressed_prompt)
+                    print(f"[MCP] 📝 Gently compressed system prompt: {len(original_prompt)} → {len(compressed_prompt)} chars ({saved} saved)")
             
-            # 🔧 OPTIMIZATION 3: Compress tool responses from previous turns
-            # 🔧 OPTIMIZATION 3: DISABLED - Was breaking tool responses
-            # for msg in messages:
-            #     if msg.get("role") == "tool":
-            #         original_content = msg.get("content", "")
-            #         if isinstance(original_content, str) and len(original_content) > 500:
-            #             compressed = _compress_tool_response(original_content)
-            #             if len(compressed) < len(original_content):
-            #                 msg["content"] = compressed
-            #                 print(f"[MCP] 🗜️  Compressed tool response: {len(original_content)} → {len(compressed)} chars")
+            # 🔧 OPTIMIZATION 3: Gentle tool response compression (only removes redundant data)
+            for msg in messages:
+                if msg.get("role") == "tool":
+                    original_content = msg.get("content", "")
+                    if isinstance(original_content, str) and len(original_content) > 1000:
+                        compressed = _compress_tool_response_gentle(original_content)
+                        if len(compressed) < len(original_content) * 0.8:  # Only apply if >20% savings
+                            msg["content"] = compressed
+                            print(f"[MCP] 🗜️  Compressed tool response: {len(original_content)} → {len(compressed)} chars")
             
-            # Extract query for tool filtering
-            query = _extract_latest_user_query(messages)
             
             # Extract query for tool filtering
             query = _extract_latest_user_query(messages)
