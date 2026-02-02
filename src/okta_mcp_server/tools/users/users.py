@@ -296,23 +296,27 @@ def search_users_by_attribute(
     value: str,
     limit: int = 200,
     ctx: Context = None
-) -> dict:
-    """Search users by profile attributes (e.g., department, division, title, location).
+) -> str:  # ✅ Changed from dict to str
+    """Search users by any profile attribute like division, department, title, location, etc.
     
-    Supports filtering by any profile attribute:
-    - division: User's division (e.g., "Corp IT", "Engineering")
-    - department: Department name
-    - title: Job title
-    - location: Office location
-    - Any custom profile attribute
+    Common use cases:
+    - Search by division: attribute="division", value="Corp IT"
+    - Search by department: attribute="department", value="Engineering"
+    - Search by title: attribute="title", value="Manager"
+    - Search by location: attribute="location", value="New York"
+    - Search by any custom profile field
     
     Args:
-        attribute: Profile attribute name (e.g., 'division', 'department', 'title')
-        value: Attribute value to match
+        attribute: Profile attribute name (e.g., 'division', 'department', 'title', 'location')
+        value: Exact value to match (case-sensitive)
         limit: Maximum number of results (default: 200)
     
     Returns:
-        Dict with matching users
+        Formatted string with user details
+    
+    Example:
+        To find all users with division="Corp IT":
+        search_users_by_attribute(attribute="division", value="Corp IT")
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Searching users with {attribute}={value}")
@@ -331,30 +335,31 @@ def search_users_by_attribute(
         
         users = []
         for user in response:
-            user_data = {
+            users.append({
                 "id": user.get("id"),
                 "email": user.get("profile", {}).get("email"),
                 "firstName": user.get("profile", {}).get("firstName"),
                 "lastName": user.get("profile", {}).get("lastName"),
                 "status": user.get("status"),
                 attribute: user.get("profile", {}).get(attribute)
-            }
-            users.append(user_data)
+            })
         
         logger.info(f"[caller={caller}] Found {len(users)} users with {attribute}={value}")
         
-        return {
-            "success": True,
-            "users": users,
-            "count": len(users),
-            "filter": search_filter
-        }
+        # ✅ Return formatted string instead of nested dict
+        if not users:
+            return f"No users found with {attribute}=\"{value}\""
+        
+        result = f"Found {len(users)} user(s) with {attribute}=\"{value}\":\n\n"
+        for user in users:
+            result += f"• {user['firstName']} {user['lastName']} ({user['email']})\n"
+            result += f"  - Status: {user['status']}\n"
+            result += f"  - ID: {user['id']}\n\n"
+        
+        return result
         
     except Exception as e:
-        logger.error(f"[caller={caller}] ❌ Error searching users by attribute: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "users": [],
-            "count": 0
-        }
+        error_msg = f"❌ Error searching users by attribute: {str(e)}"
+        logger.error(f"[caller={caller}] {error_msg}")
+        return error_msg
+

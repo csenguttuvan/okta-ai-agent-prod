@@ -709,7 +709,6 @@ def _get_relevant_tools(messages: list) -> Set[str]:
         add_tool("get_user")
         add_tool("getuser")
     if "delete" in msg and "user" in msg and "group" not in msg:
-        print(f"[MCP DEBUG] 🔴 DELETE USER MATCHED! msg='{msg}'")
         add_tool("delete_user")
         add_tool("deleteuser")
         add_tool("deactivateuser")

@@ -68,7 +68,6 @@ def list_applications(
         logger.error(f"[{caller}] {msg}")
         return msg
 
-
 @mcp.tool()
 def get_application(
     ctx: Context | None = None,
