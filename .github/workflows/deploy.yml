@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 env:
   IMAGE: blackstaa/okta-mcp-server
+  LITELLM_SECRET_ARN: arn:aws:secretsmanager:eu-west-3:306965385748:secret:litellm-master-key-20260128123932657700000001-p1aAwa
 
 jobs:
   # ── Build & Scan (GitHub-hosted runner) ──────────────────────────────
@@ -66,11 +68,11 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         if: steps.check_mcp.outputs.changed == 'true'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.29.0
         with:
           image-ref: ${{ env.IMAGE }}:scan
           format: table
-          severity: CRITICAL
+          severity: CRITICAL,HIGH
           trivyignores: .trivyignore
           exit-code: 1
 
@@ -98,6 +100,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ── Save current running tag for rollback ──────────────────────
+      - name: Save current image tag for rollback
+        id: rollback
+        run: |
+          CURRENT=$(docker inspect okta-mcp-admin \
+            --format '{{index .Config.Image}}' 2>/dev/null || echo "none")
+          echo "Current running image: $CURRENT"
+          echo "previous_image=$CURRENT" >> $GITHUB_OUTPUT
+
+      # ── Deploy new image ───────────────────────────────────────────
       - name: Pull new image
         run: |
           docker pull ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
@@ -106,32 +118,90 @@ jobs:
         working-directory: /opt/okta-litellm
         run: |
           export MCP_IMAGE=${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
-          docker compose pull
           docker compose up -d --no-deps okta-mcp-admin okta-mcp-readonly
 
-      - name: Health check
+      # ── Smoke tests ────────────────────────────────────────────────
+      - name: Wait for containers to stabilise
+        run: sleep 15
+
+      - name: Smoke test — LiteLLM proxy
         run: |
-          sleep 10
-          RUNNING=$(docker ps --filter "status=running" \
-            --format '{{.Names}}' | \
-            grep -E 'okta-mcp-admin|okta-mcp-readonly|litellm-proxy' | wc -l)
-          echo "Running containers: $RUNNING"
-          if [ "$RUNNING" -lt 3 ]; then
-            echo "❌ Expected 3 containers, got $RUNNING"
-            docker ps -a
+          MASTER_KEY=$(aws secretsmanager get-secret-value \
+            --region eu-west-3 \
+            --secret-id ${{ env.LITELLM_SECRET_ARN }} \
+            --query SecretString \
+            --output text)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            -H "Authorization: Bearer $MASTER_KEY" \
+            http://localhost:4002/health)
+          echo "LiteLLM /health → $STATUS"
+          [ "$STATUS" = "200" ] || { echo "❌ LiteLLM unhealthy (got $STATUS)"; exit 1; }
+          echo "✅ LiteLLM healthy"
+
+      - name: Smoke test — okta-mcp-admin
+        run: |
+          STATUS=$(docker inspect okta-mcp-admin --format '{{.State.Status}}')
+          RESTARTS=$(docker inspect okta-mcp-admin --format '{{.RestartCount}}')
+          echo "okta-mcp-admin → status=$STATUS restarts=$RESTARTS"
+          [ "$STATUS" = "running" ] && [ "$RESTARTS" -eq 0 ] || {
+            echo "❌ okta-mcp-admin unhealthy"
             docker logs okta-mcp-admin --tail 30
+            exit 1
+          }
+          echo "✅ okta-mcp-admin healthy"
+
+      - name: Smoke test — okta-mcp-readonly
+        run: |
+          STATUS=$(docker inspect okta-mcp-readonly --format '{{.State.Status}}')
+          RESTARTS=$(docker inspect okta-mcp-readonly --format '{{.RestartCount}}')
+          echo "okta-mcp-readonly → status=$STATUS restarts=$RESTARTS"
+          [ "$STATUS" = "running" ] && [ "$RESTARTS" -eq 0 ] || {
+            echo "❌ okta-mcp-readonly unhealthy"
             docker logs okta-mcp-readonly --tail 30
             exit 1
-          fi
-          echo "✅ All containers healthy"
+          }
+          echo "✅ okta-mcp-readonly healthy"
 
-      - name: Write deploy summary
+      # ── Rollback (only runs if any smoke test failed) ──────────────
+      - name: Rollback to previous image
+        if: failure() && steps.rollback.outputs.previous_image != 'none'
+        working-directory: /opt/okta-litellm
         run: |
+          echo "⚠️ Smoke test failed — rolling back to ${{ steps.rollback.outputs.previous_image }}"
+          export MCP_IMAGE=${{ steps.rollback.outputs.previous_image }}
+          docker compose up -d --no-deps okta-mcp-admin okta-mcp-readonly
+          sleep 20
+
+      - name: Verify rollback succeeded
+        if: failure() && steps.rollback.outputs.previous_image != 'none'
+        run: |
+          STATUS_ADMIN=$(docker inspect okta-mcp-admin --format '{{.State.Status}}')
+          STATUS_READONLY=$(docker inspect okta-mcp-readonly --format '{{.State.Status}}')
+          echo "Post-rollback: admin=$STATUS_ADMIN readonly=$STATUS_READONLY"
+          if [ "$STATUS_ADMIN" = "running" ] && [ "$STATUS_READONLY" = "running" ]; then
+            echo "✅ Rollback successful — previous version restored"
+          else
+            echo "❌ Rollback also failed — manual intervention required"
+            exit 1
+          fi
+
+      # ── Summary ────────────────────────────────────────────────────
+      - name: Write deploy summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            STATUS_ICON="✅ Live"
+            IMAGE_DEPLOYED="${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}"
+          else
+            STATUS_ICON="⚠️ Rolled back to previous"
+            IMAGE_DEPLOYED="${{ steps.rollback.outputs.previous_image }}"
+          fi
           echo "## 🚀 Deploy Summary" >> $GITHUB_STEP_SUMMARY
           echo "| | |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| **Image** | \`${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`$IMAGE_DEPLOYED\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Deployed by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Status** | ✅ Live |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | $STATUS_ICON |" >> $GITHUB_STEP_SUMMARY
