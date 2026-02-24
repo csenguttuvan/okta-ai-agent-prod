@@ -5,80 +5,133 @@ on:
     branches:
       - main
 
+env:
+  IMAGE: blackstaa/okta-mcp-server
+
 jobs:
-  build-mcp-server:
+  # ── Build & Scan (GitHub-hosted runner) ──────────────────────────────
+  build-and-scan:
     runs-on: ubuntu-latest
-    
+    outputs:
+      changed: ${{ steps.check_mcp.outputs.changed }}
+      short_sha: ${{ steps.tags.outputs.short_sha }}
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # Need at least 2 commits to compare
-      
+          fetch-depth: 2
+
       - name: Check if MCP server files changed
         id: check_mcp
         run: |
-          # Get list of changed files
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-          
-          # Check if any files in src/okta_mcp_server changed
-          if echo "$CHANGED_FILES" | grep -q '^src/okta_mcp_server/'; then
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -q '^src/okta_mcp_server/\|^Dockerfile\|^requirements'; then
             echo "changed=true" >> $GITHUB_OUTPUT
-            echo "✅ MCP server files changed - will build"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "⏭️  No MCP server changes - skipping build"
+            echo "⏭️ No MCP changes — skipping build and deploy"
           fi
-      
+
+      - name: Set image tags
+        if: steps.check_mcp.outputs.changed == 'true'
+        id: tags
+        run: |
+          SHORT="${{ github.sha }}"
+          echo "short_sha=${SHORT::7}" >> $GITHUB_OUTPUT
+
       - name: Set up Docker Buildx
         if: steps.check_mcp.outputs.changed == 'true'
-        uses: docker/setup-buildx-action@v2
-      
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to Docker Hub
         if: steps.check_mcp.outputs.changed == 'true'
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      
-      - name: Build MCP server image for scanning
+
+      - name: Build image for scanning
         if: steps.check_mcp.outputs.changed == 'true'
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           load: true
-          tags: blackstaa/okta-mcp-server:scan
+          tags: ${{ env.IMAGE }}:scan
           platforms: linux/amd64
-          cache-from: type=registry,ref=blackstaa/okta-mcp-server:latest
-      
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+
       - name: Run Trivy vulnerability scanner
         if: steps.check_mcp.outputs.changed == 'true'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'blackstaa/okta-mcp-server:scan'
-          format: 'table'
-          severity: 'CRITICAL'
-          trivyignores: '.trivyignore'
-          exit-code: '1'
-      
-      - name: Build and push MCP server to Docker Hub
+          image-ref: ${{ env.IMAGE }}:scan
+          format: table
+          severity: CRITICAL
+          trivyignores: .trivyignore
+          exit-code: 1
+
+      - name: Push SHA + latest to Docker Hub
         if: steps.check_mcp.outputs.changed == 'true'
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: blackstaa/okta-mcp-server:latest
-          cache-from: type=registry,ref=blackstaa/okta-mcp-server:latest
-          cache-to: type=inline
-      
-      - name: Deployment summary
-        if: steps.check_mcp.outputs.changed == 'true'
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.tags.outputs.short_sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+
+  # ── Deploy (self-hosted runner on EC2) ───────────────────────────────
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
+    needs: build-and-scan
+    if: needs.build-and-scan.outputs.changed == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Pull new image
         run: |
-          echo "✅ blackstaa/okta-mcp-server:latest pushed to Docker Hub"
-          echo "⏳ Watchtower will auto-deploy within 5 minutes"
-        
+          docker pull ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
+
+      - name: Deploy via Docker Compose
+        working-directory: /opt/okta-litellm
+        run: |
+          export MCP_IMAGE=${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
+          docker compose pull
+          docker compose up -d --no-deps okta-mcp-admin okta-mcp-readonly
+
+      - name: Health check
+        run: |
+          sleep 10
+          RUNNING=$(docker ps --filter "status=running" \
+            --format '{{.Names}}' | \
+            grep -E 'okta-mcp-admin|okta-mcp-readonly|litellm-proxy' | wc -l)
+          echo "Running containers: $RUNNING"
+          if [ "$RUNNING" -lt 3 ]; then
+            echo "❌ Expected 3 containers, got $RUNNING"
+            docker ps -a
+            docker logs okta-mcp-admin --tail 30
+            docker logs okta-mcp-readonly --tail 30
+            exit 1
+          fi
+          echo "✅ All containers healthy"
+
+      - name: Write deploy summary
+        run: |
+          echo "## 🚀 Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Deployed by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | ✅ Live |" >> $GITHUB_STEP_SUMMARY
