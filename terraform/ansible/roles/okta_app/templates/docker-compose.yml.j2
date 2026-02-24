@@ -31,8 +31,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   # Okta MCP Server - Readonly
   okta-mcp-readonly:
@@ -59,21 +57,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-
-  # Watchtower - Auto-update containers
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_INCLUDE_STOPPED=true
-      - WATCHTOWER_POLL_INTERVAL=300
-      - WATCHTOWER_LABEL_ENABLE=true
 
   # LiteLLM Proxy - AI Gateway
   litellm:
@@ -94,8 +77,6 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   # Loki - Log aggregation
   loki:

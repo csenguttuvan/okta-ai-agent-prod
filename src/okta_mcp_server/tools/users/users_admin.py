@@ -61,7 +61,7 @@ def create_user(
     }
 
     try:
-        # FIX: activate param goes in the URL query string, not a separate unused dict
+        # Activate param goes in the URL query string, not a separate unused dict
         user = client.post(f"/api/v1/users?activate={str(activate).lower()}", data=body)
         logger.info(f"[caller={caller}] ✅ Created user: {user.get('id')}")
         return {
