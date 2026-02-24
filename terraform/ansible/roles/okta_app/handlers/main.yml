@@ -1,0 +1,23 @@
+---
+- name: Restart docker compose
+  community.docker.docker_compose_v2:
+    project_src: /opt/okta-litellm
+    state: restarted
+
+- name: Restart litellm
+  community.docker.docker_container:
+    name: litellm-proxy
+    state: started
+    restart: yes
+
+- name: Restart loki
+  community.docker.docker_container:
+    name: loki
+    state: started
+    restart: yes
+
+- name: Restart promtail
+  community.docker.docker_container:
+    name: promtail
+    state: started
+    restart: yes

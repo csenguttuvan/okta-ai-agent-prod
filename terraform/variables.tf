@@ -18,13 +18,13 @@ variable "key_name" {
 variable "okta_api_base_url" {
   description = "Okta organization URL"
   type        = string
-  default     = "https://integrator-7772662.okta.com"
+  default     = "https://kaltura.okta.com"
 }
 
 variable "okta_client_id" {
   description = "Okta OAuth client ID (read-only app)"
   type        = string
-  default     = "0oay0b661jlQnwFJG697"
+  default     = "0oa25ucjxsjaMTjO40h8"
 }
 
 variable "okta_scopes" {
@@ -36,13 +36,13 @@ variable "okta_scopes" {
 variable "okta_admin_client_id" {
   description = "Okta OAuth client ID (admin app)"
   type        = string
-  default     = "0oay0p5kq9WhsKa9c697"
+  default     = "0oa25ucksrp2GU6rs0h8"
 }
 
 variable "okta_admin_scopes" {
   description = "Okta API scopes (admin with write)"
   type        = string
-  default     = "okta.users.read okta.users.manage okta.groups.read okta.groups.manage okta.apps.read okta.logs.read okta.apps.manage"
+  default     = "okta.users.manage okta.groups.manage okta.apps.manage"
 }
 
 variable "docker_image" {
@@ -104,5 +104,5 @@ variable "use_existing_vpc" {
 variable "okta_issuer" {
   description = "Okta OAuth issuer URL"
   type        = string
-  default     = "https://integrator-7772662.okta.com/oauth2/default"
+  default     = "https://kaltura.okta.com"
 }

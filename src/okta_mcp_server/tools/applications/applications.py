@@ -13,60 +13,53 @@ def list_applications(
     ctx: Context | None = None,
     limit: int = 20,
     after: Optional[str] = None,
-    filter: Optional[str] = None
-) -> str:  # ✅ Changed to str
+    filter: Optional[str] = None,
+    search: Optional[str] = None,  # ← ADD THIS
+) -> str:
     """List all applications in the Okta organization.
 
     Args:
         limit: Maximum number of applications to return (default 20)
         after: Pagination cursor for next page
         filter: Filter expression (e.g., 'status eq "ACTIVE"')
+        search: Search term to filter by app name (case-insensitive substring match)
 
     Returns:
         String containing formatted list of applications
     """
     caller = get_caller_email()
-    logger.info(f"[caller={caller}] Listing applications limit={limit}")
+    logger.info(f"[caller={caller}] Listing applications limit={limit} search={search}")
 
     params = {"limit": limit}
     if after:
         params["after"] = after
     if filter:
         params["filter"] = filter
+    if search:
+        # Okta supports q= for app name search
+        params["q"] = search
 
     try:
         client = get_client()
         apps = client.get("/api/v1/apps", params=params)
         logger.info(f"[caller={caller}] Found {len(apps)} applications")
-        
+
         if not apps:
-            return "No applications found."
+            return f"No applications found{f' matching {search!r}' if search else ''}."
 
-        # ✅ Format as readable string
         lines = [f"Found {len(apps)} applications:\n"]
-        
         for app in apps:
-            app_name = app.get("label", "N/A")
-            app_id = app.get("id", "N/A")
-            app_status = app.get("status", "N/A")
-            sign_on_mode = app.get("signOnMode", "N/A")
-            
             lines.append(
-                f"• {app_name} (ID: {app_id})\n"
-                f"  Status: {app_status}, Sign-on: {sign_on_mode}"
+                f"• {app.get('label', 'N/A')} (ID: {app.get('id', 'N/A')})\n"
+                f"  Status: {app.get('status', 'N/A')}, Sign-on: {app.get('signOnMode', 'N/A')}"
             )
-
         return "\n".join(lines)
 
     except PermissionError as e:
-        msg = f"❌ Permission denied: {str(e)}"
-        logger.error(f"[{caller}] {msg}")
-        return msg
-        
+        return f"❌ Permission denied: {str(e)}"
     except Exception as e:
-        msg = f"❌ Error listing applications: {str(e)}"
-        logger.error(f"[{caller}] {msg}")
-        return msg
+        return f"❌ Error listing applications: {str(e)}"
+
 
 @mcp.tool()
 def get_application(
@@ -99,6 +92,70 @@ def get_application(
     except Exception as e:
         logger.error(f"[caller={caller}] Error getting application: {str(e)}")
         raise
+
+@mcp.tool()
+def find_application(
+    ctx: Context | None = None,
+    names: list[str] = [],
+) -> str:
+    """Find one or more applications by name using exact or fuzzy search.
+
+    Args:
+        names: List of application names to search for (e.g. ["Outreach - SSO", "Outreach - Stg Prov"])
+
+    Returns:
+        String containing matched applications with their IDs
+    """
+    caller = get_caller_email()
+    logger.info(f"[caller={caller}] Finding applications: {names}")
+
+    if not names:
+        return "❌ Please provide at least one application name to search for."
+
+    client = get_client()
+    results = {}
+
+    for name in names:
+        try:
+            # Use Okta's q= param for server-side name search
+            apps = client.get("/api/v1/apps", params={"q": name, "limit": 10})
+
+            if not apps:
+                results[name] = "❌ Not found"
+                continue
+
+            # Exact match first, then fuzzy
+            name_lower = name.lower()
+            exact = [a for a in apps if a.get("label", "").lower() == name_lower]
+            matches = exact if exact else apps
+
+            results[name] = [
+                {
+                    "id": a.get("id"),
+                    "label": a.get("label"),
+                    "status": a.get("status"),
+                    "signOnMode": a.get("signOnMode"),
+                }
+                for a in matches[:3]  # Return top 3 matches max
+            ]
+
+        except Exception as e:
+            results[name] = f"❌ Error: {str(e)}"
+
+    # Format output
+    lines = []
+    for name, matches in results.items():
+        lines.append(f"\n🔍 Search: '{name}'")
+        if isinstance(matches, str):
+            lines.append(f"  {matches}")
+        else:
+            for m in matches:
+                lines.append(
+                    f"  • {m['label']} (ID: {m['id']})\n"
+                    f"    Status: {m['status']}, Sign-on: {m['signOnMode']}"
+                )
+    return "\n".join(lines)
+
 
 @mcp.tool()
 def list_application_users(

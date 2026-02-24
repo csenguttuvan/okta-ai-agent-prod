@@ -1,0 +1,64 @@
+---
+- name: Fetch Okta readonly private key
+  ansible.builtin.shell: |
+    aws secretsmanager get-secret-value \
+      --secret-id {{ readonly_secret_id }} \
+      --region {{ aws_region }} \
+      --query SecretString \
+      --output text
+  register: readonly_key
+  no_log: true
+  changed_when: false
+
+- name: Write readonly private key
+  ansible.builtin.copy:
+    content: "{{ readonly_key.stdout }}"
+    dest: /opt/okta-litellm/keys/readonly_private_key.pem
+    owner: root
+    group: root
+    mode: '0644'
+  no_log: true
+
+- name: Fetch Okta admin private key
+  ansible.builtin.shell: |
+    aws secretsmanager get-secret-value \
+      --secret-id {{ admin_secret_id }} \
+      --region {{ aws_region }} \
+      --query SecretString \
+      --output text
+  register: admin_key
+  no_log: true
+  changed_when: false
+
+- name: Write admin private key
+  ansible.builtin.copy:
+    content: "{{ admin_key.stdout }}"
+    dest: /opt/okta-litellm/keys/admin_private_key.pem
+    owner: root
+    group: root
+    mode: '0644'
+  no_log: true
+
+- name: Fetch LiteLLM secrets
+  ansible.builtin.shell: |
+    aws secretsmanager get-secret-value \
+      --secret-id {{ item.secret_id }} \
+      --region {{ aws_region }} \
+      --query SecretString \
+      --output text
+  loop:
+    - { name: 'litellm_master_key', secret_id: "{{ litellm_master_secret_id }}" }
+    - { name: 'litellm_admin_key', secret_id: "{{ litellm_admin_secret_id }}" }
+    - { name: 'litellm_reader_key', secret_id: "{{ litellm_reader_secret_id }}" }
+  register: litellm_secrets
+  no_log: true
+  changed_when: false
+
+- name: Create .env file from secrets
+  ansible.builtin.template:
+    src: env.j2
+    dest: /opt/okta-litellm/.env
+    owner: root
+    group: root
+    mode: '0644'
+  no_log: true

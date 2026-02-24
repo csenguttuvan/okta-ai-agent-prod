@@ -1,0 +1,38 @@
+---
+- name: Configure Okta MCP + LiteLLM Server
+  hosts: okta_mcp_servers
+  become: yes
+  gather_facts: yes
+
+  pre_tasks:
+    - name: Wait for system to be ready
+      wait_for_connection:
+        timeout: 300
+
+    - name: Gather system facts
+      setup:
+
+  roles:
+    - role: docker
+      tags: ['docker']
+    
+    - role: storage
+      tags: ['storage']
+    
+    - role: aws_secrets
+      tags: ['secrets']
+    
+    - role: okta_app
+      tags: ['app']
+
+  post_tasks:
+    - name: Verify all containers are running
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      register: container_status
+      loop:
+        - okta-mcp-admin
+        - okta-mcp-readonly
+        - litellm-proxy
+        - grafana
+      failed_when: container_status.container.State.Status != "running"

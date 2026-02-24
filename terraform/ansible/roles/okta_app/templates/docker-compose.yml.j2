@@ -1,0 +1,160 @@
+# ansible/roles/okta_app/templates/docker-compose.yml.j2
+version: '3.8'
+
+networks:
+  logging:
+    driver: bridge
+
+services:
+  # Okta MCP Server - Admin (Read/Write)
+  okta-mcp-admin:
+    image: {{ docker_image }}
+    container_name: okta-mcp-admin
+    network_mode: "host"
+    volumes:
+      - ./keys:/app/keys:ro
+    env_file:
+      - .env
+    environment:
+      - OKTA_PRIVATE_KEY_PATH=/app/keys/admin_private_key.pem
+      - OKTA_CLIENT_ID={{ okta_admin_client_id }}
+      - OKTA_SCOPES={{ okta_admin_scopes }}
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=8080
+      - MCP_HOST=0.0.0.0
+      - MCP_SERVER_NAME=okta-admin
+      - ACCESS_LEVEL=admin
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:8080/sse | head -c 1 > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Okta MCP Server - Readonly
+  okta-mcp-readonly:
+    image: {{ docker_image }}
+    container_name: okta-mcp-readonly
+    network_mode: "host"
+    volumes:
+      - ./keys:/app/keys:ro
+    env_file:
+      - .env
+    environment:
+      - OKTA_PRIVATE_KEY_PATH=/app/keys/readonly_private_key.pem
+      - OKTA_CLIENT_ID={{ okta_readonly_client_id }}
+      - OKTA_SCOPES={{ okta_readonly_scopes }}
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=8081
+      - MCP_HOST=0.0.0.0
+      - MCP_SERVER_NAME=okta-readonly
+      - ACCESS_LEVEL=readonly
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f --silent --max-time 2 http://localhost:8081/sse | head -c 1 > /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Watchtower - Auto-update containers
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_LABEL_ENABLE=true
+
+  # LiteLLM Proxy - AI Gateway
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm-proxy
+    network_mode: "host"
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml:ro
+      - ./litellm-data:/app/data
+      - ./custom_callbacks.py:/app/custom_callbacks.py:ro
+    env_file:
+      - .env
+    environment:
+      - PORT=4002  # ✅ CHANGED: Container listens on 4002 instead of 4001
+      - LITELLM_LOG=DEBUG
+      - PYTHONPATH=/app
+    command: ["--config", "/app/config.yaml", "--port", "4002", "--num_workers", "1"]  # ✅ CHANGED PORT
+    restart: unless-stopped
+    depends_on:
+      - redis
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Loki - Log aggregation
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    user: "10001:10001"
+    command: -config.file=/etc/loki/config/loki-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config/loki-config.yaml:ro
+      - ./loki-data:/loki
+      - ./loki-wal:/wal
+    ports:
+      - "3100:3100"
+    networks:
+      - logging
+    restart: unless-stopped
+
+  # Promtail - Log shipper
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    command: -config.file=/etc/promtail/config/promtail-config.yaml
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/config/promtail-config.yaml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - logging
+    restart: unless-stopped
+
+  # Grafana - Observability Dashboard
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    user: "472:472"
+    ports:
+      - "3002:3000"  # ✅ CHANGED: Map host 3002 to container 3001 (avoid conflict with old project)
+    environment:
+      - GF_SERVER_HTTP_PORT=3000  # Container still uses 3000 internally
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_ROOT_URL=http://localhost:3002  # ✅ External access via 3001
+    volumes:
+      - ./grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - logging
+    restart: unless-stopped
+
+  # Redis - Caching layer for LiteLLM
+  redis:
+    image: redis:7-alpine
+    container_name: litellm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    networks:
+      - logging

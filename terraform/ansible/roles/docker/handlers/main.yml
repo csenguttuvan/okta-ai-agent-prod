@@ -1,0 +1,5 @@
+---
+- name: Verify docker compose
+  ansible.builtin.command: docker compose version
+  register: compose_version
+  changed_when: false

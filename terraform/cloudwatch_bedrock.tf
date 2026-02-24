@@ -1,8 +1,8 @@
 locals {
   bedrock_models = [
-    "anthropic.claude-3-haiku-20240307-v1:0",
-    "meta.llama3-1-8b-instruct-v1:0",
-    "mistral.mistral-large-2402-v1:0"
+    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "eu.meta.llama3-1-3b-instruct-v1:0"
   ]
 }
 

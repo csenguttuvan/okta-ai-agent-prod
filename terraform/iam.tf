@@ -1,5 +1,5 @@
-resource "aws_iam_role" "mcp" {
-  name = "mcp-role"
+resource "aws_iam_role" "mcp_prod" {
+  name = "mcp-prod-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -17,24 +17,24 @@ resource "aws_iam_role" "mcp" {
   }
 }
 
-resource "aws_iam_instance_profile" "mcp" {
+resource "aws_iam_instance_profile" "mcp_prod" {
   name = "mcp-instance-profile"
-  role = aws_iam_role.mcp.name
+  role = aws_iam_role.mcp_prod.name
 }
 
 # attach secrets access policy defined in secrets.tf
 resource "aws_iam_role_policy" "secrets_access" {
-  name = "mcp-secrets-access"
-  role = aws_iam_role.mcp.id
+  name = "mcp-prod-secrets-access"
+  role = aws_iam_role.mcp_prod.id
 
   # policy is jsonencode(...) in secrets.tf or inline here
   policy = file("${path.module}/secretsmanager-policy-v2.json")
 }
 
 
-resource "aws_iam_role_policy" "okta_mcp_bedrock" {
-  name = "okta-mcp-bedrock-policy"
-  role = aws_iam_role.mcp.id
+resource "aws_iam_role_policy" "okta_mcp_prod_bedrock" {
+  name = "okta-mcp-prod-bedrock-policy"
+  role = aws_iam_role.mcp_prod.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -64,7 +64,7 @@ resource "aws_iam_role_policy" "okta_mcp_bedrock" {
 # Allow EC2 to access S3 bucket for LiteLLM cache
 resource "aws_iam_role_policy" "s3_cache_access" {
   name = "litellm-s3-cache-access"
-  role = aws_iam_role.mcp.id
+  role = aws_iam_role.mcp_prod.id
 
   policy = jsonencode({
     Version = "2012-10-17"

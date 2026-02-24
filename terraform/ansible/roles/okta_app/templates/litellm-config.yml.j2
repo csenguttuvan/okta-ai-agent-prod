@@ -1,0 +1,77 @@
+# ansible/roles/okta_app/templates/litellm-config.yml.j2
+model_list:
+  # Claude 4.5 Sonnet
+  - model_name: bedrock-sonnet
+    litellm_params:
+      model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
+      aws_region_name: {{ aws_region }}
+      max_tokens: 4000
+
+  # Claude 4.5 Haiku (fast, cheap)
+  - model_name: bedrock-haiku
+    litellm_params:
+      model: bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0
+      aws_region_name: {{ aws_region }}
+      max_tokens: 4000
+
+  # Llama 3.1 3B (open source)
+  - model_name: bedrock-llama
+    litellm_params:
+      model: bedrock/eu.meta.llama3-1-3b-instruct-v1:0
+      aws_region_name: {{ aws_region }}
+      max_tokens: 4000
+
+  # Mistral Large
+  - model_name: bedrock-mistral
+    litellm_params:
+      model: bedrock/eu.mistral.mistral-large-2402-v1:0
+      aws_region_name: {{ aws_region }}
+      max_tokens: 8000
+
+litellm_settings:
+  master_key: $LITELLM_MASTER_KEY
+  drop_params: true
+  modify_params: true
+  success_callback: ["stdout"]
+  failure_callback: ["stdout"]
+  set_verbose: false
+  callbacks: ["custom_callbacks.proxy_handler_instance"]
+
+  # Redis caching
+  cache: true
+  cache_params:
+    type: "redis"
+    host: "localhost"
+    port: 6379
+    ttl: 3600
+
+  # Token optimization
+  default_max_tokens: 4096
+  num_retries: 2
+  request_timeout: 60
+
+teams:
+  - team_id: okta_admins
+    team_alias: "Okta Administrators"
+    members_with_roles:
+      - role: admin
+        key: $LITELLM_ADMIN_KEY
+    metadata:
+      allowed_mcp_servers: ["okta_admin", "okta_readonly"]
+
+  - team_id: okta_readers
+    team_alias: "Okta Read-Only Users"
+    members_with_roles:
+      - role: user
+        key: $LITELLM_READER_KEY
+    metadata:
+      allowed_mcp_servers: ["okta_readonly"]
+
+general_settings:
+  store_model_in_db: true
+  json_logs: true
+  disable_spend_logs: false
+  store_prompts_in_spend_logs: true
+  max_input_tokens: 50000
+  stream: true
+  enable_compression: true

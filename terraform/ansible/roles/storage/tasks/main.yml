@@ -1,0 +1,28 @@
+---
+- name: Create application directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - { path: '/opt/okta-litellm' }
+    - { path: '/opt/okta-litellm/keys', mode: '0755' }
+    - { path: '/opt/okta-litellm/litellm-data' }
+    - { path: '/opt/okta-litellm/loki-data', owner: '10001', group: '10001' }
+    - { path: '/opt/okta-litellm/loki-wal', owner: '10001', group: '10001' }
+    - { path: '/opt/okta-litellm/redis-data' }
+    - { path: '/opt/okta-litellm/grafana-data', owner: '472', group: '472' }
+    - { path: '/opt/okta-litellm/grafana', owner: '472', group: '472' }
+
+- name: Create Grafana provisioning directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: '472'
+    group: '472'
+    mode: '0755'
+  loop:
+    - /opt/okta-litellm/grafana/provisioning/datasources
+    - /opt/okta-litellm/grafana/provisioning/dashboards
