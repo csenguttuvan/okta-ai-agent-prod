@@ -156,6 +156,42 @@ def find_application(
                 )
     return "\n".join(lines)
 
+@mcp.tool()
+def search_applications_fuzzy(query: str, ctx: Context | None = None) -> dict:
+    """Fuzzy search for Okta applications by name. Use when you don't know the exact app name.
+    Example: { "query": "databricks" }"""
+    caller = get_caller_email()
+    log_tool_call("search_applications_fuzzy", {"query": query}, caller)
+    
+    try:
+        apps = okta_client.list_applications()
+        query_lower = query.lower()
+        
+        matches = [
+            app for app in apps
+            if query_lower in app.get("label", "").lower()
+            or query_lower in app.get("name", "").lower()
+        ]
+        
+        if not matches:
+            return {"found": False, "message": f"No applications found matching '{query}'"}
+        
+        return {
+            "found": True,
+            "count": len(matches),
+            "applications": [
+                {
+                    "id": app.get("id"),
+                    "label": app.get("label"),
+                    "name": app.get("name"),
+                    "status": app.get("status"),
+                }
+                for app in matches
+            ]
+        }
+    except Exception as e:
+        return handle_okta_error(e, "search_applications_fuzzy")
+
 
 @mcp.tool()
 def list_application_users(
