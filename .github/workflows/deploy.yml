@@ -85,6 +85,8 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          provenance: false
+          sbom: false
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.IMAGE }}:latest
