@@ -93,7 +93,8 @@ def list_users(
 
 @mcp.tool()
 def find_user(identifier: str, ctx: Context | None = None) -> dict:
-    """Universal user lookup. Pass email, Okta ID (00u...), or full name like 'Teresa Kindred'."""
+    """Universal user lookup. Pass email, Okta ID (00u...), or full name like 'Teresa Kindred'.
+    Example: { "identifier": "orly.lampert@kaltura.com" }"""
     caller = get_caller_email()
 
     if not identifier or identifier in ("null", ""):
