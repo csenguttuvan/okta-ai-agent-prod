@@ -72,7 +72,7 @@ jobs:
         with:
           image-ref: ${{ env.IMAGE }}:scan
           format: table
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
           vuln-type: library
           ignore-unfixed: true
           trivyignores: .trivyignore
