@@ -1093,7 +1093,7 @@ def check_role_exists_on_application(
         logger.error(f"[caller={caller}] ❌ Error checking role existence: {str(e)}")
         raise
 
-@mcp.tool()
+# @mcp.tool() security: disable destructive MCP tools (delete/deactivate application)
 def delete_application(
     app_id: str,
     confirm_deletion: bool = False,
@@ -1174,7 +1174,7 @@ def delete_application(
 
     
 
-@mcp.tool()
+# @mcp.tool() security: disable destructive MCP tools (delete/deactivate application)
 def deactivate_application(
     app_id: str,
     ctx: Context = None
