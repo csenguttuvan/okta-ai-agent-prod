@@ -73,8 +73,6 @@ jobs:
           image-ref: ${{ env.IMAGE }}:scan
           format: table
           severity: CRITICAL
-          vuln-type: library
-          ignore-unfixed: true
           trivyignores: .trivyignore
           exit-code: 1
 
@@ -85,8 +83,6 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          provenance: false
-          sbom: false
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.IMAGE }}:latest
@@ -94,7 +90,7 @@ jobs:
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
 
-  # ── Deploy (self-hosted runner on EC2) ───────────────────────────────
+  # ── Deploy MCP image (self-hosted runner on EC2) ──────────────────────
   deploy:
     runs-on: [self-hosted, Linux, X64]
     needs: build-and-scan
@@ -104,7 +100,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── Save current running tag for rollback ──────────────────────
       - name: Save current image tag for rollback
         id: rollback
         run: |
@@ -113,7 +108,6 @@ jobs:
           echo "Current running image: $CURRENT"
           echo "previous_image=$CURRENT" >> $GITHUB_OUTPUT
 
-      # ── Deploy new image ───────────────────────────────────────────
       - name: Pull new image
         run: |
           docker pull ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
@@ -124,7 +118,6 @@ jobs:
           export MCP_IMAGE=${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
           docker compose up -d --no-deps okta-mcp-admin okta-mcp-readonly
 
-      # ── Smoke tests ────────────────────────────────────────────────
       - name: Wait for containers to stabilise
         run: sleep 15
 
@@ -167,7 +160,6 @@ jobs:
           }
           echo "✅ okta-mcp-readonly healthy"
 
-      # ── Rollback (only runs if any smoke test failed) ──────────────
       - name: Rollback to previous image
         if: failure() && steps.rollback.outputs.previous_image != 'none'
         working-directory: /opt/okta-litellm
@@ -175,7 +167,7 @@ jobs:
           echo "⚠️ Smoke test failed — rolling back to ${{ steps.rollback.outputs.previous_image }}"
           export MCP_IMAGE=${{ steps.rollback.outputs.previous_image }}
           docker compose up -d --no-deps okta-mcp-admin okta-mcp-readonly
-          sleep 20
+          sleep 15
 
       - name: Verify rollback succeeded
         if: failure() && steps.rollback.outputs.previous_image != 'none'
@@ -190,7 +182,6 @@ jobs:
             exit 1
           fi
 
-      # ── Summary ────────────────────────────────────────────────────
       - name: Write deploy summary
         if: always()
         run: |
@@ -209,3 +200,68 @@ jobs:
           echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Deployed by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Status** | $STATUS_ICON |" >> $GITHUB_STEP_SUMMARY
+
+  # ── Deploy config changes (self-hosted runner on EC2) ─────────────────
+  deploy-config:
+    runs-on: [self-hosted, Linux, X64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if config files changed
+        id: check_config
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -q '^ansible/'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "📦 Config changes detected"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No config changes — skipping"
+          fi
+
+      - name: Copy custom_callbacks.py to LiteLLM dir
+        if: steps.check_config.outputs.changed == 'true'
+        run: |
+          cp ansible/roles/deploy/files/custom_callbacks.py \
+            /opt/okta-litellm/custom_callbacks.py
+          echo "✅ custom_callbacks.py updated"
+
+      - name: Restart LiteLLM to pick up changes
+        if: steps.check_config.outputs.changed == 'true'
+        working-directory: /opt/okta-litellm
+        run: |
+          docker compose restart litellm-proxy
+          sleep 10
+
+      - name: Smoke test — LiteLLM healthy after restart
+        if: steps.check_config.outputs.changed == 'true'
+        run: |
+          MASTER_KEY=$(aws secretsmanager get-secret-value \
+            --region eu-west-3 \
+            --secret-id ${{ env.LITELLM_SECRET_ARN }} \
+            --query SecretString \
+            --output text)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            -H "Authorization: Bearer $MASTER_KEY" \
+            http://localhost:4002/health)
+          echo "LiteLLM /health → $STATUS"
+          [ "$STATUS" = "200" ] || { echo "❌ LiteLLM unhealthy after restart"; exit 1; }
+          echo "✅ LiteLLM healthy after config update"
+
+      - name: Write config deploy summary
+        if: steps.check_config.outputs.changed == 'true'
+        run: |
+          echo "## ⚙️ Config Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **File** | \`custom_callbacks.py\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Deployed by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | ✅ Live |" >> $GITHUB_STEP_SUMMARY
