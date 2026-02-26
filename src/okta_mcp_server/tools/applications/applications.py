@@ -98,13 +98,16 @@ def find_application(
     ctx: Context | None = None,
     names: list[str] = [],
 ) -> str:
-    """Find one or more applications by name using exact or fuzzy search.
+    """Fuzzy search for Okta applications by name. Use when exact app name is unknown.
+    Alias for find_application with a single query string.
 
     Args:
-        names: List of application names to search for (e.g. ["Outreach - SSO", "Outreach - Stg Prov"])
+        query: Partial or full application name to search for (case-insensitive)
 
     Returns:
         String containing matched applications with their IDs
+
+    Example: { "query": "databricks" }
     """
     caller = get_caller_email()
     logger.info(f"[caller={caller}] Finding applications: {names}")
@@ -157,40 +160,63 @@ def find_application(
     return "\n".join(lines)
 
 @mcp.tool()
-def search_applications_fuzzy(query: str, ctx: Context | None = None) -> dict:
-    """Fuzzy search for Okta applications by name. Use when you don't know the exact app name.
-    Example: { "query": "databricks" }"""
+def search_applications_fuzzy(
+    query: str,
+    ctx: Context | None = None,
+    limit: int = 50,
+) -> str:
+    """Fuzzy search for Okta applications by name. Use when exact app name is unknown.
+
+    Args:
+        query: Partial or full application name to search for (case-insensitive)
+        limit: Maximum number of applications to scan (default 50)
+
+    Returns:
+        String containing matched applications with their IDs
+    Example: { "query": "databricks" }
+    """
     caller = get_caller_email()
-    log_tool_call("search_applications_fuzzy", {"query": query}, caller)
-    
+    logger.info(f"[caller={caller}] Fuzzy searching applications: query={query!r}")
+
+    if not query:
+        return "❌ Please provide a search query."
+
     try:
-        apps = okta_client.list_applications()
+        client = get_client()
+        # Use Okta's q= for server-side pre-filter, then fuzzy match client-side
+        apps = client.get("/api/v1/apps", params={"q": query, "limit": limit})
+
+        if not apps:
+            return f"No applications found matching '{query}'."
+
         query_lower = query.lower()
-        
         matches = [
             app for app in apps
             if query_lower in app.get("label", "").lower()
             or query_lower in app.get("name", "").lower()
         ]
-        
+
         if not matches:
-            return {"found": False, "message": f"No applications found matching '{query}'"}
-        
-        return {
-            "found": True,
-            "count": len(matches),
-            "applications": [
-                {
-                    "id": app.get("id"),
-                    "label": app.get("label"),
-                    "name": app.get("name"),
-                    "status": app.get("status"),
-                }
-                for app in matches
-            ]
-        }
+            return f"No applications found matching '{query}'."
+
+        logger.info(f"[caller={caller}] Found {len(matches)} apps matching '{query}'")
+
+        lines = [f"Found {len(matches)} application(s) matching '{query}':\n"]
+        for app in matches:
+            lines.append(
+                f"• {app.get('label', 'N/A')} (ID: {app.get('id', 'N/A')})\n"
+                f"  Status: {app.get('status', 'N/A')}, Sign-on: {app.get('signOnMode', 'N/A')}"
+            )
+        return "\n".join(lines)
+
+    except PermissionError as e:
+        logger.error(f"[caller={caller}] Permission denied: {str(e)}")
+        return f"❌ Permission denied: {str(e)}"
     except Exception as e:
-        return handle_okta_error(e, "search_applications_fuzzy")
+        logger.error(f"[caller={caller}] Error searching applications: {str(e)}")
+        return f"❌ Error searching applications: {str(e)}"
+
+
 
 
 @mcp.tool()
