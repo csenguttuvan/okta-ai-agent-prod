@@ -63,8 +63,7 @@ jobs:
           load: true
           tags: ${{ env.IMAGE }}:scan
           platforms: linux/amd64
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          no-cache: true
 
       - name: Run Trivy vulnerability scanner
         if: steps.check_mcp.outputs.changed == 'true'
