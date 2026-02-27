@@ -5,7 +5,7 @@ model_list:
     litellm_params:
       model: bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0
       aws_region_name: {{ aws_region }}
-      max_tokens: 4000
+      max_tokens: 4096
 
   # Claude 4.5 Haiku (fast, cheap)
   - model_name: bedrock-haiku
@@ -35,7 +35,7 @@ litellm_settings:
   success_callback: ["stdout"]
   failure_callback: ["stdout"]
   set_verbose: false
-  callbacks: ["custom_callbacks.proxy_handler_instance"]
+  # callbacks: ["custom_callbacks.proxy_handler_instance"]
 
   # Redis caching
   cache: true
@@ -44,6 +44,9 @@ litellm_settings:
     host: "localhost"
     port: 6379
     ttl: 3600
+    socket_connect_timeout: 5
+    socket_timeout: 5
+
 
   # Token optimization
   default_max_tokens: 4096
