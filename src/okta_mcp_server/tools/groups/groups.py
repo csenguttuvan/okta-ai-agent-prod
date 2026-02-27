@@ -2,10 +2,13 @@ from typing import Optional, List
 from loguru import logger
 from mcp.server.fastmcp import Context
 from difflib import get_close_matches
+import re
 
 from okta_mcp_server.context import get_caller_email, get_caller_groups
 from okta_mcp_server.mcp_instance import mcp
 from okta_mcp_server.oauth_jwt_client import get_client
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 
 # ---------------------------
@@ -414,3 +417,184 @@ def preview_group_deletion_impact(
         }
     except Exception as e:
         return {"error": str(e), "group_id": group_id}
+    
+
+@mcp.tool()
+def get_groups_bulk(
+    target_type: str,
+    target_id: str,
+    limit: int = 200,
+    ctx: Context | None = None
+) -> dict:
+    """Get all groups for a user or an application in a single bulk call.
+
+    Accepts an Okta ID, email, display name, or app label — resolves automatically.
+
+    target_type: 'user' or 'app'
+    target_id:
+      - Okta ID       → '00u1abc...', '0oa4xyz...'
+      - Email         → 'jane.doe@company.com'
+      - Display name  → 'Jane Doe'
+      - App label     → 'Salesforce', 'GitHub'
+
+    Examples:
+        - target_type='user', target_id='Jane Doe'        → all groups Jane belongs to
+        - target_type='user', target_id='jane@company.com'→ all groups jane belongs to
+        - target_type='app',  target_id='Salesforce'      → all groups assigned to Salesforce
+        - target_type='app',  target_id='0oa4gh5ij6kl'    → all groups assigned to that app ID
+    """
+    caller = get_caller_email()
+    target_type = (target_type or "").strip().lower()
+
+    if target_type not in ("user", "app"):
+        return {
+            "error": f"Invalid target_type '{target_type}'. Must be 'user' or 'app'."
+        }
+
+    if not target_id or not target_id.strip():
+        return {"error": "target_id cannot be empty."}
+
+    client = get_client()
+
+    # ---------------------------
+    # Step 1: Resolve to Okta ID
+    # ---------------------------
+    resolved_id = target_id.strip()
+    resolved_label = target_id
+
+    OKTA_ID_PATTERN = re.compile(r'^[A-Za-z0-9]{20}$')
+
+    if not OKTA_ID_PATTERN.match(resolved_id):
+        if target_type == "user":
+            logger.info(f"[caller={caller}] Resolving user '{target_id}' via Okta search")
+            try:
+                results = client.get("/api/v1/users", params={"q": resolved_id, "limit": 5})
+            except Exception as e:
+                return {"error": f"Failed to search for user '{target_id}': {str(e)}"}
+
+            if not results:
+                return {"error": f"No user found matching '{target_id}'"}
+
+            if len(results) > 1:
+                return {
+                    "error": (
+                        f"Ambiguous name '{target_id}' matched {len(results)} users. "
+                        f"Please be more specific or use an email address."
+                    ),
+                    "matches": [
+                        {
+                            "id": u.get("id"),
+                            "email": (u.get("profile") or {}).get("email"),
+                            "name": (
+                                f"{(u.get('profile') or {}).get('firstName', '')} "
+                                f"{(u.get('profile') or {}).get('lastName', '')}".strip()
+                            ),
+                        }
+                        for u in results
+                    ],
+                }
+
+            resolved_id = results[0].get("id")
+            resolved_label = (results[0].get("profile") or {}).get("email", target_id)
+
+        elif target_type == "app":
+            logger.info(f"[caller={caller}] Resolving app '{target_id}' via Okta search")
+            try:
+                results = client.get("/api/v1/apps", params={"q": resolved_id, "limit": 5})
+            except Exception as e:
+                return {"error": f"Failed to search for app '{target_id}': {str(e)}"}
+
+            if not results:
+                return {"error": f"No app found matching '{target_id}'"}
+
+            if len(results) > 1:
+                return {
+                    "error": (
+                        f"Ambiguous app name '{target_id}' matched {len(results)} apps. "
+                        f"Please be more specific or use the app ID."
+                    ),
+                    "matches": [
+                        {"id": a.get("id"), "label": a.get("label"), "status": a.get("status")}
+                        for a in results
+                    ],
+                }
+
+            resolved_id = results[0].get("id")
+            resolved_label = results[0].get("label", target_id)
+
+    logger.info(
+        f"[caller={caller}] Bulk fetching groups for {target_type}="
+        f"{resolved_id} (resolved from '{target_id}')"
+    )
+
+    # ---------------------------
+    # Step 2: Fetch groups
+    # ---------------------------
+    try:
+        if target_type == "user":
+            endpoint = f"/api/v1/users/{resolved_id}/groups"
+        else:
+            endpoint = f"/api/v1/apps/{resolved_id}/groups"
+
+        raw_groups = client.get(endpoint, params={"limit": limit})
+
+    except PermissionError:
+        raise
+    except Exception as e:
+        logger.error(f"[caller={caller}] Error fetching groups: {e}")
+        return {"error": f"Failed to fetch groups: {str(e)}", "target_id": resolved_id}
+
+    # ---------------------------
+    # Step 3: Enrich stubs in parallel
+    # (App group assignments may only carry an ID with no profile)
+    # ---------------------------
+    group_ids_needing_enrichment = [
+        g.get("id") for g in raw_groups
+        if g.get("id") and not (g.get("profile") or {}).get("name")
+    ]
+
+    enriched = {}
+    if group_ids_needing_enrichment:
+        logger.info(
+            f"[caller={caller}] Enriching {len(group_ids_needing_enrichment)} "
+            f"group stubs in parallel"
+        )
+
+        def fetch_group(gid):
+            return gid, client.get(f"/api/v1/groups/{gid}")
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {
+                executor.submit(fetch_group, gid): gid
+                for gid in group_ids_needing_enrichment
+            }
+            for future in as_completed(futures):
+                try:
+                    gid, g = future.result()
+                    enriched[gid] = g
+                except Exception as e:
+                    gid = futures[future]
+                    logger.warning(f"[caller={caller}] Failed to enrich group {gid}: {e}")
+
+    # ---------------------------
+    # Step 4: Normalize and return
+    # ---------------------------
+    groups = []
+    for g in raw_groups:
+        gid = g.get("id")
+        full = enriched.get(gid, g)
+        groups.append(_normalize_group(full))
+
+    logger.info(
+        f"[caller={caller}] Found {len(groups)} groups for "
+        f"{target_type} '{resolved_label}' ({resolved_id})"
+    )
+
+    return {
+        "groups": groups,
+        "count": len(groups),
+        "target_type": target_type,
+        "target_id": resolved_id,
+        "resolved_from": target_id if target_id != resolved_id else None,
+        "label": resolved_label,
+    }
