@@ -111,19 +111,19 @@ jobs:
         run: |
           docker pull ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
 
-      - name: Deploy via Docker Compose
-        working-directory: /opt/okta-litellm
-        run: |
-          # Re-render compose file with exact SHA tag
-          ansible localhost -m template \
-            -a "src=${{ github.workspace }}/ansible/roles/okta_app/templates/docker-compose.yml.j2 dest=/opt/okta-litellm/docker-compose.yml" \
-            -e "mcp_image_tag=${{ needs.build-and-scan.outputs.short_sha }}" \
-            -e "okta_admin_client_id=0oa25ucksrp2GU6rs0h8" \
-            -e "okta_readonly_client_id=0oa25ucjxsjaMTjO40h8" \
-            -e "okta_admin_scopes='okta.users.manage okta.groups.manage okta.logs.read okta.apps.manage'" \
-            -e "okta_readonly_scopes='okta.users.read okta.groups.read okta.apps.read okta.logs.read'"
-          docker compose up -d --no-deps --force-recreate okta-mcp-admin okta-mcp-readonly
-
+          - name: Deploy via Docker Compose
+          working-directory: /opt/okta-litellm
+          run: |
+            TEMPLATE_SRC="${{ github.workspace }}/terraform/ansible/roles/okta_app/templates/docker-compose.yml.j2"
+            
+            ansible localhost -m template \
+              -a "src=$TEMPLATE_SRC dest=/opt/okta-litellm/docker-compose.yml" \
+              -e "mcp_image_tag=${{ needs.build-and-scan.outputs.short_sha }}" \
+              -e "okta_admin_client_id=0oa25ucksrp2GU6rs0h8" \
+              -e "okta_readonly_client_id=0oa25ucjxsjaMTjO40h8" \
+              -e "okta_admin_scopes='okta.users.manage okta.groups.manage okta.logs.read okta.apps.manage'" \
+              -e "okta_readonly_scopes='okta.users.read okta.groups.read okta.apps.read okta.logs.read'"
+            docker compose up -d --no-deps --force-recreate okta-mcp-admin okta-mcp-readonly
       - name: Wait for containers to stabilise
         run: sleep 15
 
