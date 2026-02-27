@@ -18,3 +18,4 @@ okta_admin_scopes: "okta.users.manage okta.groups.manage okta.logs.read okta.app
 
 # Docker
 docker_image: "blackstaa/okta-mcp-server:latest"
+mcp_image_tag: "latest"
