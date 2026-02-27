@@ -8,7 +8,7 @@ networks:
 services:
   # Okta MCP Server - Admin (Read/Write)
   okta-mcp-admin:
-    image: {{ docker_image }}
+    image: "blackstaa/okta-mcp-server:{{ mcp_image_tag | default('latest') }}"
     container_name: okta-mcp-admin
     network_mode: "host"
     volumes:
@@ -34,7 +34,7 @@ services:
 
   # Okta MCP Server - Readonly
   okta-mcp-readonly:
-    image: {{ docker_image }}
+    image: "blackstaa/okta-mcp-server:{{ mcp_image_tag | default('latest') }}"
     container_name: okta-mcp-readonly
     network_mode: "host"
     volumes:
