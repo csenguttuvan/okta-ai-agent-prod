@@ -420,7 +420,7 @@ def preview_group_deletion_impact(
     
 
 @mcp.tool()
-def get_groups_bulk(
+def bulk_get_groups(
     target_type: str,
     target_id: str,
     limit: int = 200,
