@@ -135,7 +135,7 @@ services:
       - "6379:6379"
     volumes:
       - ./redis-data:/data
-    command: redis-server --appendonly yes
+    network_mode: "host"
+    command: redis-server --save "" --appendonly no --stop-writes-on-bgsave-error no
     restart: unless-stopped
-    networks:
-      - logging
+    
