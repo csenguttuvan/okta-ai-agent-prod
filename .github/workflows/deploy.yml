@@ -114,6 +114,7 @@ jobs:
       - name: Deploy via Docker Compose
         working-directory: /opt/okta-litellm
         run: |
+            sudo chown -R ec2-user:ec2-user /opt/okta-litellm/
             sed -i 's|image: "blackstaa/okta-mcp-server:.*"|image: "blackstaa/okta-mcp-server:${{ needs.build-and-scan.outputs.short_sha }}"|g' /opt/okta-litellm/docker-compose.yml
             echo "Updated compose file:"
             grep image /opt/okta-litellm/docker-compose.yml
