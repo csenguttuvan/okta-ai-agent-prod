@@ -27,7 +27,7 @@ jobs:
       - name: Check if MCP server files changed
         id: check_mcp
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
           echo "$CHANGED"
           if echo "$CHANGED" | grep -q '^src/okta_mcp_server/\|^Dockerfile\|^requirements'; then
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -114,7 +114,6 @@ jobs:
       - name: Deploy via Docker Compose
         working-directory: /opt/okta-litellm
         run: |
-            sudo chown -R ec2-user:ec2-user /opt/okta-litellm/
             sed -i 's|image: "blackstaa/okta-mcp-server:.*"|image: "blackstaa/okta-mcp-server:${{ needs.build-and-scan.outputs.short_sha }}"|g' /opt/okta-litellm/docker-compose.yml
             echo "Updated compose file:"
             grep image /opt/okta-litellm/docker-compose.yml
@@ -165,23 +164,41 @@ jobs:
         if: failure() && steps.rollback.outputs.previous_image != 'none'
         working-directory: /opt/okta-litellm
         run: |
-          echo "⚠️ Smoke test failed — rolling back to ${{ steps.rollback.outputs.previous_image }}"
-          export MCP_IMAGE=${{ steps.rollback.outputs.previous_image }}
-          docker compose up -d --no-deps okta-mcp-admin okta-mcp-readonly
-          sleep 15
-
+            echo "⚠️ Deploy failed for ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}"
+            echo "⏪ Rolling back to: ${{ steps.rollback.outputs.previous_image }}"
+            sed -i 's|image: "blackstaa/okta-mcp-server:.*"|image: "${{ steps.rollback.outputs.previous_image }}"|g' /opt/okta-litellm/docker-compose.yml
+            echo "Updated compose file:"
+            grep image /opt/okta-litellm/docker-compose.yml
+            docker compose up -d --no-deps --force-recreate okta-mcp-admin okta-mcp-readonly
+            sleep 15
+        
       - name: Verify rollback succeeded
         if: failure() && steps.rollback.outputs.previous_image != 'none'
         run: |
-          STATUS_ADMIN=$(docker inspect okta-mcp-admin --format '{{.State.Status}}')
-          STATUS_READONLY=$(docker inspect okta-mcp-readonly --format '{{.State.Status}}')
-          echo "Post-rollback: admin=$STATUS_ADMIN readonly=$STATUS_READONLY"
-          if [ "$STATUS_ADMIN" = "running" ] && [ "$STATUS_READONLY" = "running" ]; then
-            echo "✅ Rollback successful — previous version restored"
-          else
-            echo "❌ Rollback also failed — manual intervention required"
-            exit 1
-          fi
+            STATUS_ADMIN=$(docker inspect okta-mcp-admin --format '{{.State.Status}}')
+            STATUS_READONLY=$(docker inspect okta-mcp-readonly --format '{{.State.Status}}')
+            IMAGE_ADMIN=$(docker inspect okta-mcp-admin --format '{{.Config.Image}}')
+            IMAGE_READONLY=$(docker inspect okta-mcp-readonly --format '{{.Config.Image}}')
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔍 Post-rollback status"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "  Failed image  : ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}"
+            echo "  Rolled back to: ${{ steps.rollback.outputs.previous_image }}"
+            echo "  admin   → status=$STATUS_ADMIN  image=$IMAGE_ADMIN"
+            echo "  readonly → status=$STATUS_READONLY  image=$IMAGE_READONLY"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "🐳 All running containers:"
+            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+            echo ""
+            if [ "$STATUS_ADMIN" = "running" ] && [ "$STATUS_READONLY" = "running" ]; then
+              echo "✅ Rollback successful — previous version restored"
+            else
+              echo "❌ Rollback also failed — manual intervention required"
+              docker logs okta-mcp-admin --tail 30
+              docker logs okta-mcp-readonly --tail 30
+              exit 1
+            fi
 
       - name: Write deploy summary
         if: always()
@@ -215,9 +232,9 @@ jobs:
       - name: Check if config files changed
         id: check_config
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
           echo "$CHANGED"
-          if echo "$CHANGED" | grep -q '^ansible/'; then
+          if echo "$CHANGED" | grep -q '^terraform/ansible/'; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "📦 Config changes detected"
           else
