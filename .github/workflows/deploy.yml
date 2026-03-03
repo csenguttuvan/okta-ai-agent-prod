@@ -245,7 +245,7 @@ jobs:
       - name: Copy custom_callbacks.py to LiteLLM dir
         if: steps.check_config.outputs.changed == 'true'
         run: |
-          cp ansible/roles/deploy/files/custom_callbacks.py \
+          cp ansible/roles/okta_app/files/custom_callbacks.py \
             /opt/okta-litellm/custom_callbacks.py
           echo "✅ custom_callbacks.py updated"
 
