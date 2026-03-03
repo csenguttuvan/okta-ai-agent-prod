@@ -26,3 +26,13 @@
   loop:
     - /opt/okta-litellm/grafana/provisioning/datasources
     - /opt/okta-litellm/grafana/provisioning/dashboards
+
+- name: Ensure Loki directories have correct ownership
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: '10001'
+    group: '10001'
+    recurse: yes
+  loop:
+    - /opt/okta-litellm/loki-data
+    - /opt/okta-litellm/loki-wal

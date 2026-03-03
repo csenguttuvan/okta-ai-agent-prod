@@ -119,7 +119,8 @@ services:
       - GF_SERVER_HTTP_PORT=3000  # Container still uses 3000 internally
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_SERVER_ROOT_URL=http://localhost:3002  # ✅ External access via 3001
+      - GF_SERVER_ROOT_URL=http://localhost:10039
+      - GF_SERVER_DOMAIN=localhost
     volumes:
       - ./grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
