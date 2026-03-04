@@ -42,7 +42,7 @@ variable "okta_admin_client_id" {
 variable "okta_admin_scopes" {
   description = "Okta API scopes (admin with write)"
   type        = string
-  default     = "okta.users.manage okta.groups.manage okta.apps.manage"
+  default     = "okta.users.manage okta.groups.manage okta.apps.manage okta.logs.read"
 }
 
 variable "docker_image" {
