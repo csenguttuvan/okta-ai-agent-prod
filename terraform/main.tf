@@ -30,6 +30,11 @@ resource "aws_instance" "okta_mcp_prod" {
     encrypted = true
   }
 
+  # ✅ Prevent AMI updates from destroying the instance
+  lifecycle {
+    ignore_changes = [ami, user_data]
+  }
+
   user_data = file("${path.module}/bootstrap.sh")
 
   tags = {
