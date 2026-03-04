@@ -26,7 +26,8 @@ resource "aws_instance" "okta_mcp_prod" {
   root_block_device {
     volume_size           = 30
     volume_type           = "gp3"
-    delete_on_termination = true
+    delete_on_termination = false
+    encrypted = true
   }
 
   user_data = file("${path.module}/bootstrap.sh")
