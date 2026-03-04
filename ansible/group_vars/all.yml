@@ -10,11 +10,11 @@ litellm_admin_secret_id: "arn:aws:secretsmanager:eu-west-3:306965385748:secret:l
 litellm_reader_secret_id: "arn:aws:secretsmanager:eu-west-3:306965385748:secret:litellm-reader-team-key-20260128123932933300000009-6ua86p"
 
 # Okta Configuration
-okta_api_base_url: "https://integrator-7772662.okta.com"
-okta_readonly_client_id: "0oay0b661jlQnwFJG697"
+okta_api_base_url: "https://kaltura.okta.com"
+okta_readonly_client_id: "0oa25ucjxsjaMTjO40h8"
 okta_readonly_scopes: "okta.users.read okta.groups.read okta.apps.read okta.logs.read"
-okta_admin_client_id: "0oay0p5kq9WhsKa9c697"
-okta_admin_scopes: "okta.users.manage okta.groups.manage okta.apps.manage"
+okta_admin_client_id: "0oa25ucksrp2GU6rs0h8"
+okta_admin_scopes: "okta.users.manage okta.groups.manage okta.apps.manage okta.logs.read"
 
 # Docker
 docker_image: "blackstaa/okta-mcp-server:latest"
