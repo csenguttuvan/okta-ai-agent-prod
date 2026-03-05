@@ -3,8 +3,8 @@
   ansible.builtin.file:
     path: "{{ item.path }}"
     state: directory
-    owner: "{{ item.owner | default('root') }}"
-    group: "{{ item.group | default('root') }}"
+    owner: "{{ item.owner | default('ec2-user') }}"
+    group: "{{ item.group | default('ec2-user') }}"
     mode: "{{ item.mode | default('0755') }}"
   loop:
     - { path: '/opt/okta-litellm' }
