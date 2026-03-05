@@ -35,19 +35,20 @@
     mode: '0644'
   notify: Restart loki
 
-- name: Copy Promtail config
+- name: Copy Alloy config
   ansible.builtin.template:
-    src: promtail-config.yml.j2
-    dest: /opt/okta-litellm/promtail-config.yaml
-    owner: root
-    group: root
+    src: alloy-config.alloy.j2
+    dest: /opt/okta-litellm/alloy-config.alloy
+    owner: 473
+    group: 473
     mode: '0644'
-  notify: Restart promtail
+  notify: Restart alloy
 
 - name: Start Docker Compose stack
   community.docker.docker_compose_v2:
     project_src: /opt/okta-litellm
     state: present
+    remove_orphans: true
   register: compose_output
 
 - name: Display container status

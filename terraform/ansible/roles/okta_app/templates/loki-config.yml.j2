@@ -16,29 +16,29 @@ ingester:
   chunk_idle_period: 5m
   chunk_block_size: 262144
   chunk_retain_period: 30s
-  max_transfer_retries: 0
+  # ✅ REMOVED: max_transfer_retries — field removed in Loki 3.x
 
 schema_config:
   configs:
     - from: 2020-10-24
-      store: boltdb-shipper
+      store: tsdb              # ✅ CHANGED: was boltdb-shipper
       object_store: filesystem
-      schema: v11
+      schema: v13              # ✅ UPGRADED: was v11, v13 recommended for Loki 3.x
       index:
         prefix: index_
         period: 24h
 
 storage_config:
-  boltdb_shipper:
+  tsdb_shipper:                # ✅ CHANGED: was boltdb_shipper
     active_index_directory: /loki/index
     cache_location: /loki/index_cache
-    shared_store: filesystem
+    # ✅ REMOVED: shared_store — field removed in Loki 3.x
   filesystem:
     directory: /loki/chunks
 
 compactor:
   working_directory: /loki/compactor
-  shared_store: filesystem
+  # ✅ REMOVED: shared_store — field removed in Loki 3.x
 
 limits_config:
   ingestion_rate_mb: 32
@@ -46,10 +46,10 @@ limits_config:
   max_query_series: 100000
   max_query_length: 48h
   max_entries_limit_per_query: 10000
+  retention_period: 168h      # ✅ MOVED: retention now lives in limits_config in 3.x
 
-chunk_store_config:
-  max_look_back_period: 0s
+chunk_store_config: {}
+  # ✅ REMOVED: max_look_back_period — field removed in Loki 3.x
 
-table_manager:
-  retention_deletes_enabled: true
-  retention_period: 168h  # 7 days
+# ✅ REMOVED: table_manager block — deprecated and removed in Loki 3.x
+#    retention_period moved to limits_config above

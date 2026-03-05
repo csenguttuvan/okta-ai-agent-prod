@@ -16,8 +16,8 @@
     state: started
     restart: yes
 
-- name: Restart promtail
+- name: Restart alloy
   community.docker.docker_container:
-    name: promtail
+    name: alloy
     state: started
     restart: yes

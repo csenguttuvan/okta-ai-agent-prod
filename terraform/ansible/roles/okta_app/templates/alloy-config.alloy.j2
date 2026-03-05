@@ -1,0 +1,56 @@
+// ansible/roles/okta_app/templates/alloy-config.alloy.j2
+
+// ── Loki destination ──────────────────────────────────────────────────────────
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// ── Docker container discovery ────────────────────────────────────────────────
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+// ── Relabel: map Docker metadata to log labels ────────────────────────────────
+discovery.relabel "docker_labels" {
+  targets = discovery.docker.containers.targets
+
+  // Strip leading slash from container name
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container_name"
+    action        = "replace"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    target_label  = "container_id"
+    action        = "replace"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "docker"
+  }
+
+  rule {
+    target_label = "cluster"
+    replacement  = "okta-litellm-prod"
+  }
+
+  rule {
+    target_label = "host"
+    replacement  = "ec2-prod-instance"
+  }
+}
+
+// ── Scrape logs from discovered containers ────────────────────────────────────
+loki.source.docker "docker_logs" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.docker_labels.output
+  forward_to       = [loki.write.default.receiver]
+  refresh_interval = "5s"
+}
