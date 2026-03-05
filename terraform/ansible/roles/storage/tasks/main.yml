@@ -15,6 +15,7 @@
     - { path: '/opt/okta-litellm/redis-data' }
     - { path: '/opt/okta-litellm/grafana-data', owner: '472', group: '472' }
     - { path: '/opt/okta-litellm/grafana', owner: '472', group: '472' }
+    - { path: '/opt/okta-litellm/alloy-data', owner: '473', group: '473' }
 
 - name: Create Grafana provisioning directories
   ansible.builtin.file:
@@ -36,3 +37,10 @@
   loop:
     - /opt/okta-litellm/loki-data
     - /opt/okta-litellm/loki-wal
+
+- name: Ensure Alloy data directory has correct ownership
+  ansible.builtin.file:
+    path: /opt/okta-litellm/alloy-data
+    owner: '473'
+    group: '473'
+    recurse: yes

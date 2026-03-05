@@ -1,5 +1,5 @@
 # ansible/roles/okta_app/templates/docker-compose.yml.j2
-version: '3.8'
+version: '3.9'
 
 networks:
   logging:
@@ -60,7 +60,7 @@ services:
 
   # LiteLLM Proxy - AI Gateway
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    image: ghcr.io/berriai/litellm:{{ litellm_version }}  # ✅ PINNED
     container_name: litellm-proxy
     network_mode: "host"
     volumes:
@@ -80,7 +80,7 @@ services:
 
   # Loki - Log aggregation
   loki:
-    image: grafana/loki:2.9.0
+    image: grafana/loki:{{ loki_version }}
     container_name: loki
     user: "10001:10001"
     command: -config.file=/etc/loki/config/loki-config.yaml
@@ -94,23 +94,28 @@ services:
       - logging
     restart: unless-stopped
 
-  # Promtail - Log shipper
-  promtail:
-    image: grafana/promtail:2.9.0
-    container_name: promtail
-    command: -config.file=/etc/promtail/config/promtail-config.yaml
+  # Grafana Alloy - Log shipper (replaces Promtail)
+  alloy:
+    image: grafana/alloy:{{ alloy_version }}
+    container_name: alloy
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
     volumes:
-      - ./promtail-config.yaml:/etc/promtail/config/promtail-config.yaml:ro
-      - /var/log:/var/log:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - ./alloy-data:/var/lib/alloy/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - logging
     restart: unless-stopped
+    depends_on:
+      - loki
+
 
   # Grafana - Observability Dashboard
   grafana:
-    image: grafana/grafana:10.4.0
+    image: grafana/grafana:{{ grafana_version }}
     container_name: grafana
     user: "472:472"
     ports:
@@ -130,7 +135,7 @@ services:
 
   # Redis - Caching layer for LiteLLM
   redis:
-    image: redis:7-alpine
+    image: redis:{{ redis_version }}
     container_name: litellm-redis
     ports:
       - "6379:6379"
@@ -139,4 +144,3 @@ services:
     network_mode: "host"
     command: redis-server --save "" --appendonly no --stop-writes-on-bgsave-error no
     restart: unless-stopped
-    

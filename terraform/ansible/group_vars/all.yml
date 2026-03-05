@@ -19,3 +19,10 @@ okta_admin_scopes: "okta.users.manage okta.groups.manage okta.logs.read okta.app
 # Docker
 docker_image: "blackstaa/okta-mcp-server:latest"
 mcp_image_tag: "latest"
+
+
+litellm_version: "main-v1.81.12-stable.2"
+loki_version: "3.4.3"
+alloy_version: "v1.7.5"
+grafana_version: "12.0.2"
+redis_version: "7.4.8-alpine"
