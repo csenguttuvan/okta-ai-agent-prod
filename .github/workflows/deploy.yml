@@ -254,7 +254,7 @@ jobs:
         if: steps.check_config.outputs.changed == 'true'
         working-directory: /opt/okta-litellm
         run: |
-          docker compose restart litellm-proxy
+          docker compose restart litellm
           sleep 10
 
       - name: Smoke test — LiteLLM healthy after restart
