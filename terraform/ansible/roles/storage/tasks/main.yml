@@ -16,6 +16,8 @@
     - { path: '/opt/okta-litellm/grafana-data', owner: '472', group: '472' }
     - { path: '/opt/okta-litellm/grafana', owner: '472', group: '472' }
     - { path: '/opt/okta-litellm/alloy-data', owner: '473', group: '473' }
+    - { path: '/opt/okta-litellm/postgres-data', owner: '999', group: '999' }  # ✅ ADDED: postgres UID
+
 
 - name: Create Grafana provisioning directories
   ansible.builtin.file:
@@ -43,4 +45,11 @@
     path: /opt/okta-litellm/alloy-data
     owner: '473'
     group: '473'
+    recurse: yes
+
+- name: Ensure Postgres data directory has correct ownership
+  ansible.builtin.file:
+    path: /opt/okta-litellm/postgres-data
+    owner: '999'
+    group: '999'
     recurse: yes

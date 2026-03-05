@@ -35,4 +35,8 @@
         - okta-mcp-readonly
         - litellm-proxy
         - grafana
+        - loki
+        - alloy
+        - litellm-redis
+        - litellm-postgres
       failed_when: container_status.container.State.Status != "running"

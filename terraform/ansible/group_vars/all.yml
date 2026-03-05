@@ -26,3 +26,9 @@ loki_version: "3.4.3"
 alloy_version: "v1.7.5"
 grafana_version: "12.0.2"
 redis_version: "7.4.8-alpine"
+postgres_version: "16-alpine"
+
+# PostgreSQL - LiteLLM database          # ✅ ADDED
+litellm_db_user: "litellm"
+litellm_db_name: "litellm"
+litellm_db_secret_id: arn:aws:secretsmanager:eu-west-3:306965385748:secret:litellm-db-password-prod-NK8KMu
