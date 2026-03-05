@@ -298,3 +298,5 @@ def list_application_groups(
     except Exception as e:
         logger.error(f"[caller={caller}] Error listing application groups: {str(e)}")
         raise
+
+    

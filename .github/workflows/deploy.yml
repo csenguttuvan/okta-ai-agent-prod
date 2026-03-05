@@ -87,7 +87,7 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ steps.tags.outputs.short_sha }}
-        
+
 
   # ── Deploy MCP image (self-hosted runner on EC2) ──────────────────────
   deploy:
@@ -114,10 +114,11 @@ jobs:
       - name: Deploy via Docker Compose
         working-directory: /opt/okta-litellm
         run: |
-            sed -i 's|image: "blackstaa/okta-mcp-server:.*"|image: "blackstaa/okta-mcp-server:${{ needs.build-and-scan.outputs.short_sha }}"|g' /opt/okta-litellm/docker-compose.yml
-            echo "Updated compose file:"
-            grep image /opt/okta-litellm/docker-compose.yml
-            docker compose up -d --no-deps --force-recreate okta-mcp-admin okta-mcp-readonly
+          sed -i 's|image: "blackstaa/okta-mcp-server:.*"|image: "blackstaa/okta-mcp-server:${{ needs.build-and-scan.outputs.short_sha }}"|g' /opt/okta-litellm/docker-compose.yml
+          echo "Updated compose file:"
+          grep image /opt/okta-litellm/docker-compose.yml
+          docker compose up -d --no-deps --force-recreate okta-mcp-admin okta-mcp-readonly
+
       - name: Wait for containers to stabilise
         run: sleep 15
 
@@ -128,12 +129,18 @@ jobs:
             --secret-id ${{ env.LITELLM_SECRET_ARN }} \
             --query SecretString \
             --output text)
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 10 \
-            -H "Authorization: Bearer $MASTER_KEY" \
-            http://localhost:4002/health)
-          echo "LiteLLM /health → $STATUS"
-          [ "$STATUS" = "200" ] || { echo "❌ LiteLLM unhealthy (got $STATUS)"; exit 1; }
+
+          echo "Waiting for LiteLLM..."
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              -H "Authorization: Bearer $MASTER_KEY" \
+              http://localhost:4002/health/readiness)
+            echo "Attempt $i → HTTP $STATUS"
+            [ "$STATUS" = "200" ] && break
+            [ "$i" = "12" ] && { echo "❌ LiteLLM unhealthy after 60s (last status: $STATUS)"; exit 1; }
+            sleep 5
+          done
           echo "✅ LiteLLM healthy"
 
       - name: Smoke test — okta-mcp-admin
@@ -164,41 +171,41 @@ jobs:
         if: failure() && steps.rollback.outputs.previous_image != 'none'
         working-directory: /opt/okta-litellm
         run: |
-            echo "⚠️ Deploy failed for ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}"
-            echo "⏪ Rolling back to: ${{ steps.rollback.outputs.previous_image }}"
-            sed -i 's|image: "blackstaa/okta-mcp-server:.*"|image: "${{ steps.rollback.outputs.previous_image }}"|g' /opt/okta-litellm/docker-compose.yml
-            echo "Updated compose file:"
-            grep image /opt/okta-litellm/docker-compose.yml
-            docker compose up -d --no-deps --force-recreate okta-mcp-admin okta-mcp-readonly
-            sleep 15
-        
+          echo "⚠️ Deploy failed for ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}"
+          echo "⏪ Rolling back to: ${{ steps.rollback.outputs.previous_image }}"
+          sed -i 's|image: "blackstaa/okta-mcp-server:.*"|image: "${{ steps.rollback.outputs.previous_image }}"|g' /opt/okta-litellm/docker-compose.yml
+          echo "Updated compose file:"
+          grep image /opt/okta-litellm/docker-compose.yml
+          docker compose up -d --no-deps --force-recreate okta-mcp-admin okta-mcp-readonly
+          sleep 15
+
       - name: Verify rollback succeeded
         if: failure() && steps.rollback.outputs.previous_image != 'none'
         run: |
-            STATUS_ADMIN=$(docker inspect okta-mcp-admin --format '{{.State.Status}}')
-            STATUS_READONLY=$(docker inspect okta-mcp-readonly --format '{{.State.Status}}')
-            IMAGE_ADMIN=$(docker inspect okta-mcp-admin --format '{{.Config.Image}}')
-            IMAGE_READONLY=$(docker inspect okta-mcp-readonly --format '{{.Config.Image}}')
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "🔍 Post-rollback status"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "  Failed image  : ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}"
-            echo "  Rolled back to: ${{ steps.rollback.outputs.previous_image }}"
-            echo "  admin   → status=$STATUS_ADMIN  image=$IMAGE_ADMIN"
-            echo "  readonly → status=$STATUS_READONLY  image=$IMAGE_READONLY"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo ""
-            echo "🐳 All running containers:"
-            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
-            echo ""
-            if [ "$STATUS_ADMIN" = "running" ] && [ "$STATUS_READONLY" = "running" ]; then
-              echo "✅ Rollback successful — previous version restored"
-            else
-              echo "❌ Rollback also failed — manual intervention required"
-              docker logs okta-mcp-admin --tail 30
-              docker logs okta-mcp-readonly --tail 30
-              exit 1
-            fi
+          STATUS_ADMIN=$(docker inspect okta-mcp-admin --format '{{.State.Status}}')
+          STATUS_READONLY=$(docker inspect okta-mcp-readonly --format '{{.State.Status}}')
+          IMAGE_ADMIN=$(docker inspect okta-mcp-admin --format '{{.Config.Image}}')
+          IMAGE_READONLY=$(docker inspect okta-mcp-readonly --format '{{.Config.Image}}')
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🔍 Post-rollback status"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Failed image  : ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}"
+          echo "  Rolled back to: ${{ steps.rollback.outputs.previous_image }}"
+          echo "  admin    → status=$STATUS_ADMIN  image=$IMAGE_ADMIN"
+          echo "  readonly → status=$STATUS_READONLY  image=$IMAGE_READONLY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "🐳 All running containers:"
+          docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+          echo ""
+          if [ "$STATUS_ADMIN" = "running" ] && [ "$STATUS_READONLY" = "running" ]; then
+            echo "✅ Rollback successful — previous version restored"
+          else
+            echo "❌ Rollback also failed — manual intervention required"
+            docker logs okta-mcp-admin --tail 30
+            docker logs okta-mcp-readonly --tail 30
+            exit 1
+          fi
 
       - name: Write deploy summary
         if: always()
@@ -218,6 +225,7 @@ jobs:
           echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Deployed by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Status** | $STATUS_ICON |" >> $GITHUB_STEP_SUMMARY
+
 
   # ── Deploy config changes (self-hosted runner on EC2) ─────────────────
   deploy-config:
@@ -265,12 +273,18 @@ jobs:
             --secret-id ${{ env.LITELLM_SECRET_ARN }} \
             --query SecretString \
             --output text)
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 10 \
-            -H "Authorization: Bearer $MASTER_KEY" \
-            http://localhost:4002/health)
-          echo "LiteLLM /health → $STATUS"
-          [ "$STATUS" = "200" ] || { echo "❌ LiteLLM unhealthy after restart"; exit 1; }
+
+          echo "Waiting for LiteLLM after restart..."
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              -H "Authorization: Bearer $MASTER_KEY" \
+              http://localhost:4002/health/readiness)
+            echo "Attempt $i → HTTP $STATUS"
+            [ "$STATUS" = "200" ] && break
+            [ "$i" = "12" ] && { echo "❌ LiteLLM unhealthy after 60s (last status: $STATUS)"; exit 1; }
+            sleep 5
+          done
           echo "✅ LiteLLM healthy after config update"
 
       - name: Write config deploy summary
