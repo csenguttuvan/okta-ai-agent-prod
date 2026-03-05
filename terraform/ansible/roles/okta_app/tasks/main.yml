@@ -3,8 +3,8 @@
   ansible.builtin.template:
     src: docker-compose.yml.j2
     dest: /opt/okta-litellm/docker-compose.yml
-    owner: root
-    group: root
+    owner: ec2-user
+    group: ec2-user
     mode: '0644'
   notify: Restart docker compose
 
@@ -12,8 +12,8 @@
   ansible.builtin.template:
     src: litellm-config.yml.j2
     dest: /opt/okta-litellm/litellm-config.yaml
-    owner: root
-    group: root
+    owner: ec2-user
+    group: ec2-user
     mode: '0644'
   notify: Restart litellm
 
@@ -21,8 +21,8 @@
   ansible.builtin.copy:
     src: custom_callbacks.py
     dest: /opt/okta-litellm/custom_callbacks.py
-    owner: root
-    group: root
+    owner: ec2-user
+    group: ec2-user
     mode: '0644'
   notify: Restart litellm
 
@@ -30,8 +30,8 @@
   ansible.builtin.template:
     src: loki-config.yml.j2
     dest: /opt/okta-litellm/loki-config.yaml
-    owner: root
-    group: root
+    owner: ec2-user
+    group: ec2-user
     mode: '0644'
   notify: Restart loki
 
@@ -41,7 +41,7 @@
     dest: /opt/okta-litellm/alloy-config.alloy
     owner: 473
     group: 473
-    mode: '0644'
+    mode: '0644' 
   notify: Restart alloy
 
 - name: Start Docker Compose stack
