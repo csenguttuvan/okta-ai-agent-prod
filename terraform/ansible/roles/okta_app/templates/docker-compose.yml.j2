@@ -77,6 +77,7 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
+      - postgres
 
   # Loki - Log aggregation
   loki:
@@ -118,10 +119,10 @@ services:
     image: grafana/grafana:{{ grafana_version }}
     container_name: grafana
     user: "472:472"
-    ports:
-      - "3002:3000"  # ✅ CHANGED: Map host 3002 to container 3001 (avoid conflict with old project)
+    # ports:
+    #   - "3002:3000"  # ✅ CHANGED: Map host 3002 to container 3001 (avoid conflict with old project)
     environment:
-      - GF_SERVER_HTTP_PORT=3000  # Container still uses 3000 internally
+      - GF_SERVER_HTTP_PORT=3002
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_SERVER_ROOT_URL=http://localhost:10039
@@ -129,8 +130,7 @@ services:
     volumes:
       - /opt/okta-litellm/grafana/data:/var/lib/grafana 
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-    networks:
-      - logging
+    network_mode: "host"
     restart: unless-stopped
 
   # Redis - Caching layer for LiteLLM
