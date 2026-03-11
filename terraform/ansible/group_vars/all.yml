@@ -31,4 +31,10 @@ postgres_version: "16-alpine"
 # PostgreSQL - LiteLLM database          # ✅ ADDED
 litellm_db_user: "litellm"
 litellm_db_name: "litellm"
-litellm_db_secret_id: arn:aws:secretsmanager:eu-west-3:306965385748:secret:litellm-db-password-prod-NK8KMu
+
+
+# RDS master connection (for schema setup)
+rds_host: "okta-orchestrator-db.cxvxlfb3g9aw.eu-west-3.rds.amazonaws.com"
+rds_master_user: "orchestrator"
+rds_db_password_secret_id: arn:aws:secretsmanager:eu-west-3:306965385748:secret:okta-orchestrator-db-password-Q9XPIF
+

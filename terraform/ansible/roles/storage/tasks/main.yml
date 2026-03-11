@@ -16,7 +16,6 @@
     - { path: '/opt/okta-litellm/grafana-data', owner: '472', group: '472' }
     - { path: '/opt/okta-litellm/grafana', owner: '472', group: '472' }
     - { path: '/opt/okta-litellm/alloy-data', owner: '473', group: '473' }
-    - { path: '/opt/okta-litellm/postgres-data', owner: '999', group: '999' }  # ✅ ADDED: postgres UID
 
 
 - name: Create Grafana provisioning directories
@@ -47,9 +46,54 @@
     group: '473'
     recurse: yes
 
-- name: Ensure Postgres data directory has correct ownership
-  ansible.builtin.file:
-    path: /opt/okta-litellm/postgres-data
-    owner: '999'
-    group: '999'
-    recurse: yes
+- name: Ensure litellm DB and user exist on RDS
+  ansible.builtin.shell: |
+    PGPASSWORD="{{ rds_master_password }}" psql \
+      -h {{ rds_host }} \
+      -U {{ rds_master_user }} \
+      -d postgres \
+      -tc "SELECT 1 FROM pg_database WHERE datname='{{ litellm_db_name }}'" | grep -q 1 || \
+    PGPASSWORD="{{ rds_master_password }}" psql \
+      -h {{ rds_host }} \
+      -U {{ rds_master_user }} \
+      -d postgres \
+      -c "CREATE DATABASE {{ litellm_db_name }};"
+  no_log: true
+  changed_when: false
+
+- name: Ensure litellm user exists on RDS
+  ansible.builtin.shell: |
+    PGPASSWORD="{{ rds_master_password }}" psql \
+      -h {{ rds_host }} \
+      -U {{ rds_master_user }} \
+      -d postgres \
+      -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ litellm_db_user }}'" | grep -q 1 || \
+    PGPASSWORD="{{ rds_master_password }}" psql \
+      -h {{ rds_host }} \
+      -U {{ rds_master_user }} \
+      -d postgres \
+      -c "CREATE USER {{ litellm_db_user }} WITH PASSWORD '{{ litellm_db_password }}';"
+  no_log: true
+  changed_when: false
+
+- name: Grant litellm schema permissions on RDS
+  ansible.builtin.shell: |
+    PGPASSWORD="{{ rds_master_password }}" psql \
+      -h {{ rds_host }} \
+      -U {{ rds_master_user }} \
+      -d {{ litellm_db_name }} \
+      -c "GRANT ALL ON SCHEMA public TO {{ litellm_db_user }};
+          GRANT CREATE ON SCHEMA public TO {{ litellm_db_user }};
+          ALTER SCHEMA public OWNER TO {{ litellm_db_user }};
+          GRANT ALL PRIVILEGES ON DATABASE {{ litellm_db_name }} TO {{ litellm_db_user }};"
+  no_log: true
+  changed_when: false
+
+- name: Run LiteLLM Prisma migrations
+  community.docker.docker_container_exec:
+    container: litellm-proxy
+    command: prisma db push --schema /app/schema.prisma
+  register: prisma_result
+  retries: 5
+  delay: 10
+  until: prisma_result.rc == 0

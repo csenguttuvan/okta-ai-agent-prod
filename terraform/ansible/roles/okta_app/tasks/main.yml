@@ -44,21 +44,6 @@
     mode: '0644' 
   notify: Restart alloy
 
-- name: Fetch LiteLLM DB password from AWS Secrets Manager
-  ansible.builtin.command:
-    cmd: >
-      aws secretsmanager get-secret-value
-      --region eu-west-3
-      --secret-id {{ litellm_db_secret_id }}
-      --query SecretString
-      --output text
-  register: litellm_db_password_result
-  no_log: true  # ✅ prevents password appearing in Ansible logs
-
-- name: Set DB password fact
-  ansible.builtin.set_fact:
-    litellm_db_password: "{{ litellm_db_password_result.stdout }}"
-  no_log: true
 
 - name: Create Grafana data directory
   ansible.builtin.file:
@@ -68,7 +53,7 @@
     group: "472"
     mode: "0755"
   become: true
-  
+
 - name: Ensure Grafana data directory exists with correct ownership
   ansible.builtin.file:
     path: /opt/okta-litellm/grafana/data

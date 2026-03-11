@@ -16,11 +16,11 @@
     - role: docker
       tags: ['docker']
     
-    - role: storage
-      tags: ['storage']
-    
     - role: aws_secrets
       tags: ['secrets']
+      
+    - role: storage
+      tags: ['storage']
     
     - role: okta_app
       tags: ['app']
@@ -38,5 +38,4 @@
         - loki
         - alloy
         - litellm-redis
-        - litellm-postgres
       failed_when: container_status.container.State.Status != "running"

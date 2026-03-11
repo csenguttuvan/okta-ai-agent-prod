@@ -46,18 +46,18 @@
 - name: Fetch Postgres database password
   ansible.builtin.shell: |
     aws secretsmanager get-secret-value \
-      --secret-id {{ litellm_db_secret_id }} \
+      --secret-id {{ rds_db_password_secret_id }} \
       --region {{ aws_region }} \
       --query SecretString \
       --output text
-  register: litellm_db_password_result  # ✅ FIXED: was admin_key (collision)
+  register: litellm_db_password_result
   no_log: true
   changed_when: false
 
-
 - name: Set DB password fact
   ansible.builtin.set_fact:
-    litellm_db_password: "{{ litellm_db_password_result.stdout }}"  # ✅ ADDED: makes var available to templates
+    litellm_db_password: "{{ litellm_db_password_result.stdout }}"
+    rds_master_password: "{{ litellm_db_password_result.stdout }}"  # ← same secret, reused
   no_log: true
 
 
