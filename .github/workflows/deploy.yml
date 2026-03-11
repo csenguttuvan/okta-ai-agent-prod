@@ -263,7 +263,7 @@ jobs:
         working-directory: /opt/okta-litellm
         run: |
           docker compose restart litellm
-          sleep 10
+          sleep 30
 
       - name: Smoke test — LiteLLM healthy after restart
         if: steps.check_config.outputs.changed == 'true'
