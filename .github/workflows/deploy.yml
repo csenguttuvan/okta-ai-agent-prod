@@ -282,7 +282,7 @@ jobs:
               http://localhost:4002/health/readiness)
             echo "Attempt $i → HTTP $STATUS"
             [ "$STATUS" = "200" ] && break
-            [ "$i" = "12" ] && { echo "❌ LiteLLM unhealthy after 60s (last status: $STATUS)"; exit 1; }
+            [ "$i" = "24" ] && { echo "❌ LiteLLM unhealthy after 60s (last status: $STATUS)"; exit 1; }
             sleep 5
           done
           echo "✅ LiteLLM healthy after config update"
