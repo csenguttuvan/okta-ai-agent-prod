@@ -27,7 +27,7 @@ resource "aws_instance" "okta_mcp_prod" {
     volume_size           = 30
     volume_type           = "gp3"
     delete_on_termination = false
-    encrypted = true
+    encrypted             = true
   }
 
   # ✅ Prevent AMI updates from destroying the instance

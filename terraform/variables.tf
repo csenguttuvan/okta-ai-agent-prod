@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
-  default     = "t3.small" # Upgraded from t3.micro for LiteLLM
+  default     = "t3.medium" # Upgraded from t3.small for Prisma migration during ansible run
 }
 
 variable "key_name" {
