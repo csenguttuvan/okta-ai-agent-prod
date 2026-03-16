@@ -7,7 +7,7 @@ echo "🚀 Starting minimal bootstrap..."
 yum update -y
 
 # Install system dependencies
-yum install -y python3 python3-pip git jq nodejs
+yum install -y python3 python3-pip python3.11 git jq nodejs
 
 # Install Terraform
 yum install -y yum-utils
@@ -15,7 +15,7 @@ yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/has
 yum install -y terraform
 
 # Install Ansible + AWS deps
-pip3 install "ansible-core>=2.16" ansible boto3 botocore
+pip3.11 install "ansible-core>=2.16" ansible boto3 botocore
 
 # Install Docker
 dnf install -y docker
