@@ -27,7 +27,7 @@ postgres_version: "16-alpine"
 # Bedrock model
 bedrock_model_id: "bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
-# Docker image
+
 docker_image: "blackstaa/okta-mcp-server:latest"
 
 # PostgreSQL - LiteLLM database
