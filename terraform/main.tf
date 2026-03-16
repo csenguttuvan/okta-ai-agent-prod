@@ -43,37 +43,6 @@ resource "aws_instance" "okta_mcp_prod" {
     Purpose     = "MCP Server Prod"
   }
 }
-
-# Generate Ansible inventory
-resource "local_file" "ansible_inventory" {
-  content = templatefile("${path.module}/inventory.tftpl", {
-    instance_ip = aws_instance.okta_mcp_prod.private_ip
-    aws_region  = var.aws_region
-    instance_id = aws_instance.okta_mcp_prod.id
-  })
-  filename = "${path.module}/ansible/inventory/hosts.ini"
-
-  depends_on = [aws_instance.okta_mcp_prod]
-}
-
-# Generate Ansible variables
-resource "local_file" "ansible_vars" {
-  content = templatefile("${path.module}/group_vars.tftpl", {
-    aws_region               = var.aws_region
-    readonly_secret_id       = data.aws_secretsmanager_secret.okta_readonly_private_key.id
-    admin_secret_id          = data.aws_secretsmanager_secret.okta_admin_private_key.id
-    litellm_master_secret_id = data.aws_secretsmanager_secret.litellm_master_key.id
-    litellm_admin_secret_id  = data.aws_secretsmanager_secret.litellm_admin_key.id
-    litellm_reader_secret_id = data.aws_secretsmanager_secret.litellm_reader_key.id
-    rds_host                 = var.database.rds_host
-    master_user              = var.database.rds_master_user
-    password_secret_id       = var.database.rds_db_password_secret_id
-  })
-  filename = "${path.module}/ansible/group_vars/all/terraform_outputs.yml"
-
-  depends_on = [aws_instance.okta_mcp_prod]
-}
-
 # Get latest Amazon Linux 2023 AMI
 data "aws_ami" "amazon_linux_2023" {
   most_recent = true
