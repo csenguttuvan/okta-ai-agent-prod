@@ -384,6 +384,10 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "⏭️ No Ansible changes — skipping"
           fi
+      
+      - name: Install Ansible collections
+        run: ansible-galaxy collection install -r terraform/ansible/requirements.yml
+
 
       - name: Run Ansible playbook
         if: steps.check_ansible.outputs.changed == 'true'
