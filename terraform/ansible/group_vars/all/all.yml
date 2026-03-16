@@ -28,7 +28,7 @@ bedrock_model_id: "bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 docker_image: "blackstaa/okta-mcp-server:latest"  # overridden by CI at runtime
 
-# PostgreSQL - LiteLLM database          # ✅ ADDED
+# PostgreSQL - LiteLLM database
 litellm_db_user: "litellm"
 litellm_db_name: "litellm"
 
