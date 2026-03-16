@@ -96,4 +96,4 @@
   register: prisma_result
   retries: 5
   delay: 10
-  until: prisma_result.rc == 0
+  until: prisma_result is not failed
