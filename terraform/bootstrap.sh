@@ -5,15 +5,15 @@ set -e
 echo "🚀 Starting minimal bootstrap..."
 
 # Update system
-yum update -y
+dnf update -y
 
 # Install system dependencies
-yum install -y python3 python3-pip python3.11 git jq nodejs
+dnf install -y python3 python3-pip python3.11 python3.11-pip git jq nodejs
 
 # Install Terraform
-yum install -y yum-utils
-yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
-yum install -y terraform
+dnf install -y dnf-plugins-core
+dnf config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+dnf install -y terraform
 
 # Install Ansible + AWS deps
 pip3.11 install "ansible-core>=2.16" ansible boto3 botocore
