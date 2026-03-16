@@ -51,7 +51,7 @@ resource "local_file" "ansible_inventory" {
     aws_region  = var.aws_region
     instance_id = aws_instance.okta_mcp_prod.id
   })
-  filename = "${path.module}/../ansible/inventory/hosts.ini"
+  filename = "${path.module}/ansible/inventory/hosts.ini"
 
   depends_on = [aws_instance.okta_mcp_prod]
 }
@@ -65,49 +65,13 @@ resource "local_file" "ansible_vars" {
     litellm_master_secret_id = data.aws_secretsmanager_secret.litellm_master_key.id
     litellm_admin_secret_id  = data.aws_secretsmanager_secret.litellm_admin_key.id
     litellm_reader_secret_id = data.aws_secretsmanager_secret.litellm_reader_key.id
-    okta_api_base_url        = var.okta_api_base_url
-    okta_readonly_client_id  = var.okta_client_id
-    okta_readonly_scopes     = var.okta_scopes
-    okta_admin_client_id     = var.okta_admin_client_id
-    okta_admin_scopes        = var.okta_admin_scopes
-    docker_image             = var.docker_image
+    rds_host                 = var.database.rds_host
+    master_user              = var.database.rds_master_user
+    password_secret_id       = var.database.rds_db_password_secret_id
   })
-  filename = "${path.module}/../ansible/group_vars/all.yml"
+  filename = "${path.module}/ansible/group_vars/all/terraform_outputs.yml"
 
   depends_on = [aws_instance.okta_mcp_prod]
-}
-
-# Automatically run Ansible after instance creation
-resource "null_resource" "run_ansible" {
-  triggers = {
-    instance_id = aws_instance.okta_mcp_prod.id
-  }
-
-  provisioner "local-exec" {
-    command = <<-EOT
-      echo "⏳ Waiting for instance to be ready..."
-      sleep 60
-      
-      until ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-            -p 10031 \
-            -i ~/.ssh/okta-mcp-prod.pem \
-            ec2-user@127.0.0.1 'command -v ansible' 2>/dev/null; do
-        echo "⏳ Waiting for bootstrap..."
-        sleep 10
-      done
-      
-      echo "✅ Bootstrap complete!"
-      echo "🚀 Running Ansible..."
-      cd /Users/chrissenguttuvan/Desktop/okta-ai-agent/okta-mcp-server-with-litellm-prod/terraform/ansible && ansible-playbook playbook.yml -i inventory/hosts.ini
-      echo "✅ Done!"
-    EOT
-  }
-
-  depends_on = [
-    aws_instance.okta_mcp_prod,
-    local_file.ansible_inventory,
-    local_file.ansible_vars
-  ]
 }
 
 # Get latest Amazon Linux 2023 AMI

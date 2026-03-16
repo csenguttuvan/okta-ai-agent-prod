@@ -34,3 +34,7 @@ Thumbs.db
 terraform_logs.txt
 terraform_logs.*
 .env.gateway
+
+# Ansible
+terraform/ansible/group_vars/all.yml
+terraform/ansible/group_vars/all/terraform_outputs.yml

@@ -237,12 +237,12 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check if config files changed
+      - name: Check if custom_callbacks.py changed
         id: check_config
         run: |
           CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
           echo "$CHANGED"
-          if echo "$CHANGED" | grep -q '^terraform/ansible/'; then
+          if echo "$CHANGED" | grep -q '^terraform/ansible/roles/okta_app/files/custom_callbacks.py'; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "📦 Config changes detected"
           else
@@ -282,7 +282,7 @@ jobs:
               http://localhost:4002/health/readiness)
             echo "Attempt $i → HTTP $STATUS"
             [ "$STATUS" = "200" ] && break
-            [ "$i" = "24" ] && { echo "❌ LiteLLM unhealthy after 60s (last status: $STATUS)"; exit 1; }
+            [ "$i" = "24" ] && { echo "❌ LiteLLM unhealthy after 120s (last status: $STATUS)"; exit 1; }
             sleep 5
           done
           echo "✅ LiteLLM healthy after config update"
@@ -298,3 +298,111 @@ jobs:
           echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Deployed by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Status** | ✅ Live |" >> $GITHUB_STEP_SUMMARY
+
+
+  # ── Deploy Terraform changes (self-hosted runner on EC2) ──────────────
+  deploy-terraform:
+    runs-on: [self-hosted, Linux, X64]
+    needs: build-and-scan
+    outputs:
+      tf_changed: ${{ steps.check_tf.outputs.changed }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if Terraform files changed
+        id: check_tf
+        run: |
+          CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
+          if echo "$CHANGED" | grep -qE '^terraform/[^/]+\.tf$'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "🏗️ Terraform changes detected"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No Terraform changes — skipping"
+          fi
+
+      - name: Setup Terraform
+        if: steps.check_tf.outputs.changed == 'true'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.0"
+
+      - name: Terraform Init
+        if: steps.check_tf.outputs.changed == 'true'
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        if: steps.check_tf.outputs.changed == 'true'
+        working-directory: terraform
+        run: |
+          terraform plan \
+            -var-file="terraform.tfvars" \
+            -out=tfplan \
+            -input=false
+
+      - name: Terraform Apply
+        if: steps.check_tf.outputs.changed == 'true'
+        working-directory: terraform
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Write Terraform deploy summary
+        if: steps.check_tf.outputs.changed == 'true'
+        run: |
+          echo "## 🏗️ Terraform Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Deployed by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | ✅ Applied |" >> $GITHUB_STEP_SUMMARY
+
+
+  # ── Run Ansible provisioning (self-hosted runner on EC2) ──────────────
+  deploy-ansible:
+    runs-on: [self-hosted, Linux, X64]
+    needs: [build-and-scan, deploy-terraform]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if Ansible files or Terraform changed
+        id: check_ansible
+        run: |
+          CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
+          TF_CHANGED="${{ needs.deploy-terraform.outputs.tf_changed }}"
+          if echo "$CHANGED" | grep -qE '^terraform/ansible/' || [ "$TF_CHANGED" = "true" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "🔧 Ansible provisioning required"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No Ansible changes — skipping"
+          fi
+
+      - name: Run Ansible playbook
+        if: steps.check_ansible.outputs.changed == 'true'
+        working-directory: terraform/ansible
+        run: |
+          ansible-playbook playbook.yml \
+            -i inventory/hosts.ini \
+            --connection=local \
+            -e "docker_image=${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha || 'latest' }}"
+
+      - name: Write Ansible deploy summary
+        if: steps.check_ansible.outputs.changed == 'true'
+        run: |
+          echo "## 🔧 Ansible Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha || 'latest' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Deployed by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | ✅ Provisioned |" >> $GITHUB_STEP_SUMMARY

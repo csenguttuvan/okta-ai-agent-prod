@@ -1,20 +1,11 @@
 ---
 # AWS Configuration
 aws_region: "${aws_region}"
-
-# Secret IDs
 readonly_secret_id: "${readonly_secret_id}"
 admin_secret_id: "${admin_secret_id}"
 litellm_master_secret_id: "${litellm_master_secret_id}"
 litellm_admin_secret_id: "${litellm_admin_secret_id}"
 litellm_reader_secret_id: "${litellm_reader_secret_id}"
-
-# Okta Configuration
-okta_api_base_url: "${okta_api_base_url}"
-okta_readonly_client_id: "${okta_readonly_client_id}"
-okta_readonly_scopes: "${okta_readonly_scopes}"
-okta_admin_client_id: "${okta_admin_client_id}"
-okta_admin_scopes: "${okta_admin_scopes}"
-
-# Docker
-docker_image: "${docker_image}"
+rds_host: "${rds_host}"
+rds_master_user: "${master_user}"
+rds_db_password_secret_id: "${password_secret_id}"

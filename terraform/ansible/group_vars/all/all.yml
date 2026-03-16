@@ -16,17 +16,17 @@ okta_readonly_scopes: "okta.users.read okta.groups.read okta.apps.read okta.logs
 okta_admin_client_id: "0oa25ucksrp2GU6rs0h8"
 okta_admin_scopes: "okta.users.manage okta.groups.manage okta.logs.read okta.apps.manage"
 
-# Docker
-docker_image: "blackstaa/okta-mcp-server:latest"
-mcp_image_tag: "latest"
-
-
+# Service versions
 litellm_version: "main-v1.81.12-stable.2"
 loki_version: "3.4.3"
 alloy_version: "v1.7.5"
 grafana_version: "12.0.2"
 redis_version: "7.4.8-alpine"
 postgres_version: "16-alpine"
+
+bedrock_model_id: "bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+docker_image: "blackstaa/okta-mcp-server:latest"  # overridden by CI at runtime
 
 # PostgreSQL - LiteLLM database          # ✅ ADDED
 litellm_db_user: "litellm"
@@ -36,5 +36,4 @@ litellm_db_name: "litellm"
 # RDS master connection (for schema setup)
 rds_host: "okta-orchestrator-db.cxvxlfb3g9aw.eu-west-3.rds.amazonaws.com"
 rds_master_user: "orchestrator"
-rds_db_password_secret_id: arn:aws:secretsmanager:eu-west-3:306965385748:secret:okta-orchestrator-db-password-Q9XPIF
-
+rds_db_password_secret_id: "arn:aws:secretsmanager:eu-west-3:306965385748:secret:okta-orchestrator-db-password-Q9XPIF"
