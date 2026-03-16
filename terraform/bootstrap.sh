@@ -15,10 +15,7 @@ yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/has
 yum install -y terraform
 
 # Install Ansible + AWS deps
-pip3 install ansible boto3 botocore
-
-# Install Ansible collections
-ansible-galaxy collection install community.docker
+pip3 install "ansible-core>=2.16" ansible boto3 botocore
 
 # Install Docker
 dnf install -y docker
