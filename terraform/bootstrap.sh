@@ -8,6 +8,8 @@ yum update -y
 
 # Install Python and dependencies
 yum install -y python3 python3-pip git jq
+sudo dnf install -y nodejs #For github Runner
+
 
 # Install Ansible
 pip3 install ansible boto3 botocore
