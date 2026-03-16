@@ -24,6 +24,7 @@ grafana_version: "12.0.2"
 redis_version: "7.4.8-alpine"
 postgres_version: "16-alpine"
 
+# Bedrock model
 bedrock_model_id: "bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 # Docker image
