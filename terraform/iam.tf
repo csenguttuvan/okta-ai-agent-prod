@@ -97,3 +97,37 @@ resource "aws_iam_role_policy" "s3_cache_access" {
     ]
   })
 }
+
+# Allow EC2 runner to read/write Terraform state in S3
+resource "aws_iam_role_policy" "terraform_state_access" {
+  name = "mcp-prod-terraform-state-access"
+  role = aws_iam_role.mcp_prod.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject", # s3:GetObject	terraform init and plan — reads current state
+          "s3:PutObject", # s3:PutObject	terraform apply — writes updated state after changes
+          "s3:DeleteObject"# s3:DeleteObject	State file cleanup / workspace operations
+        ]
+        Resource = "arn:aws:s3:::corpit-terraform-tfstate-paris/okta-mcp-litellm-prod/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket" # s3:ListBucket	terraform init — checks the prefix exists
+        ]
+        Resource = "arn:aws:s3:::corpit-terraform-tfstate-paris"
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["okta-mcp-litellm-prod/*"]
+          }
+        }
+      }
+    ]
+  })
+}
+
