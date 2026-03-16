@@ -1,4 +1,5 @@
 #!/bin/bash
+# Runs with terraform
 set -e
 
 echo "🚀 Starting minimal bootstrap..."
