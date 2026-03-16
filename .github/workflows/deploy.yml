@@ -389,6 +389,12 @@ jobs:
         working-directory: terraform/ansible
         run: ansible-galaxy collection install -r requirements.yml
 
+      - name: Debug Ansible env
+        working-directory: terraform/ansible
+        run: |
+          ansible --version
+          ansible-galaxy collection list | grep docker
+          ansible-config dump | grep COLLECTIONS
 
       - name: Run Ansible playbook
         if: steps.check_ansible.outputs.changed == 'true'
