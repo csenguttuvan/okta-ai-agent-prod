@@ -14,7 +14,7 @@ okta_api_base_url: "https://kaltura.okta.com"
 okta_readonly_client_id: "0oa25ucjxsjaMTjO40h8"
 okta_readonly_scopes: "okta.users.read okta.groups.read okta.apps.read okta.logs.read"
 okta_admin_client_id: "0oa25ucksrp2GU6rs0h8"
-okta_admin_scopes: "okta.users.manage okta.groups.manage okta.logs.read okta.apps.manage"
+okta_admin_scopes: "okta.users.manage okta.groups.manage okta.logs.read okta.apps.manage okta.apps.read"
 
 # Service versions
 litellm_version: "main-v1.81.12-stable.2"
