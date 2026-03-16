@@ -317,7 +317,7 @@ jobs:
         id: check_tf
         run: |
           CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
-          if echo "$CHANGED" | grep -qE '^terraform/[^/]+\.tf$'; then
+          if echo "$CHANGED" | grep -qE '^terraform/[^/]+\.tf$|^terraform/bootstrap\.sh$'; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "🏗️ Terraform changes detected"
           else
