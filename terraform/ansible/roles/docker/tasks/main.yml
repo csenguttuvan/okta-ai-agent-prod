@@ -37,3 +37,19 @@
     name: ec2-user
     groups: docker
     append: yes
+
+- name: Install Python 3.11
+  dnf:
+    name: python3.11
+    state: present
+  become: true
+
+- name: Upgrade ansible-core to 2.16+ on Python 3.11
+  pip:
+    name:
+      - "ansible-core>=2.16"
+      - boto3
+      - botocore
+    state: latest
+    executable: pip3.11
+  become: true
