@@ -48,7 +48,3 @@
     state: latest
     executable: pip3.11
   become: true
-
-- name: Show installed libraries
-  ansible.builtin.debug:
-    msg: "{{ pip_list.stdout_lines | select('search', 'requests|boto3|botocore|ansible') | list }}"
