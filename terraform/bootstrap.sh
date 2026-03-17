@@ -16,7 +16,7 @@ dnf config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/has
 dnf install -y terraform
 
 # Install Ansible + AWS deps
-pip3.11 install "ansible-core>=2.16" ansible boto3 botocore
+pip3.11 install "ansible-core>=2.16" ansible boto3 botocore requests
 
 # Install Docker
 dnf install -y docker
