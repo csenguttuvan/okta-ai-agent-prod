@@ -13,17 +13,18 @@
       setup:
 
   roles:
-    - role: docker
-      tags: ['docker']
-    
+
     - role: aws_secrets
       tags: ['secrets']
-      
+
     - role: storage
       tags: ['storage']
-    
+ 
     - role: okta_app
       tags: ['app']
+
+    - role: docker
+      tags: ['docker']
 
   post_tasks:
     - name: Verify all containers are running
