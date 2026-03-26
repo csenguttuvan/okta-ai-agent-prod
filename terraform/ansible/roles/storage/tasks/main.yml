@@ -39,55 +39,71 @@
     - /opt/okta-litellm/loki-data
     - /opt/okta-litellm/loki-wal
 
-- name: Ensure Alloy data directory has correct ownership
-  ansible.builtin.file:
-    path: /opt/okta-litellm/alloy-data
-    owner: '473'
-    group: '473'
-    recurse: yes
+- name: Ensure psycopg2 is installed (required by community.postgresql)
+  ansible.builtin.pip:
+    name: psycopg2-binary
+    state: present
+  delegate_to: localhost
 
-- name: Ensure litellm DB and user exist on RDS
-  ansible.builtin.shell: |
-    PGPASSWORD="{{ rds_master_password }}" psql \
-      -h {{ rds_host }} \
-      -U {{ rds_master_user }} \
-      -d postgres \
-      -tc "SELECT 1 FROM pg_database WHERE datname='{{ litellm_db_name }}'" | grep -q 1 || \
-    PGPASSWORD="{{ rds_master_password }}" psql \
-      -h {{ rds_host }} \
-      -U {{ rds_master_user }} \
-      -d postgres \
-      -c "CREATE DATABASE {{ litellm_db_name }};"
+- name: Ensure litellm database exists on RDS
+  community.postgresql.postgresql_db:
+    name: "{{ litellm_db_name }}"
+    state: present
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+    encoding: UTF-8
+  delegate_to: localhost
   no_log: true
-  changed_when: false
 
 - name: Ensure litellm user exists on RDS
-  ansible.builtin.shell: |
-    PGPASSWORD="{{ rds_master_password }}" psql \
-      -h {{ rds_host }} \
-      -U {{ rds_master_user }} \
-      -d postgres \
-      -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ litellm_db_user }}'" | grep -q 1 || \
-    PGPASSWORD="{{ rds_master_password }}" psql \
-      -h {{ rds_host }} \
-      -U {{ rds_master_user }} \
-      -d postgres \
-      -c "CREATE USER {{ litellm_db_user }} WITH PASSWORD '{{ litellm_db_password }}';"
+  community.postgresql.postgresql_user:
+    name: "{{ litellm_db_user }}"
+    password: "{{ litellm_db_password }}"
+    state: present
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+  delegate_to: localhost
   no_log: true
-  changed_when: false
 
-- name: Grant litellm schema permissions on RDS
-  ansible.builtin.shell: |
-    PGPASSWORD="{{ rds_master_password }}" psql \
-      -h {{ rds_host }} \
-      -U {{ rds_master_user }} \
-      -d {{ litellm_db_name }} \
-      -c "GRANT ALL ON SCHEMA public TO {{ litellm_db_user }};
-          GRANT CREATE ON SCHEMA public TO {{ litellm_db_user }};
-          ALTER SCHEMA public OWNER TO {{ litellm_db_user }};
-          GRANT ALL PRIVILEGES ON DATABASE {{ litellm_db_name }} TO {{ litellm_db_user }};"
+- name: Grant litellm user privileges on RDS
+  community.postgresql.postgresql_privs:
+    database: "{{ litellm_db_name }}"
+    roles: "{{ litellm_db_user }}"
+    type: database
+    privs: ALL
+    state: present
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+  delegate_to: localhost
   no_log: true
-  changed_when: false
+
+- name: Grant schema public privileges to litellm user
+  community.postgresql.postgresql_privs:
+    database: "{{ litellm_db_name }}"
+    roles: "{{ litellm_db_user }}"
+    type: schema
+    objs: public
+    privs: ALL,CREATE
+    state: present
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+  delegate_to: localhost
+  no_log: true
+
+- name: Set schema public owner to litellm user
+  community.postgresql.postgresql_schema:
+    name: public
+    owner: "{{ litellm_db_user }}"
+    database: "{{ litellm_db_name }}"
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+  delegate_to: localhost
+  no_log: true
 
 - name: Run LiteLLM Prisma migrations
   community.docker.docker_container_exec:
