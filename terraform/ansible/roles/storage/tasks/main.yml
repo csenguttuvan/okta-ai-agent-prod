@@ -86,7 +86,7 @@
     roles: "{{ litellm_db_user }}"
     type: schema
     objs: public
-    privs: ALL,CREATE
+    privs: ALL
     state: present
     login_host: "{{ rds_host }}"
     login_user: "{{ rds_master_user }}"
