@@ -249,10 +249,6 @@ resource "aws_iam_role_policy_attachment" "ssm" {
 
 # ── OIDC Token creation for Packer to assume an IAM role ──────────────────────────────────────────
 
-data "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-}
-
 resource "aws_iam_role" "github_actions_packer" {
   name = "github-actions-packer-role"
 
@@ -261,7 +257,7 @@ resource "aws_iam_role" "github_actions_packer" {
     Statement = [{
       Effect    = "Allow"
       Principal = {
-        Federated = data.aws_iam_openid_connect_provider.github.arn
+        Federated = "arn:aws:iam::306965385748:oidc-provider/token.actions.githubusercontent.com"
       }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
