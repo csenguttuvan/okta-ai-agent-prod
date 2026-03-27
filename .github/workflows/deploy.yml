@@ -143,7 +143,7 @@ jobs:
         id: packer_build
         working-directory: packer
         run: |
-          packer build -machine-readable app-server.pkr.hcl | tee build.log
+          packer build -machine-readable . | tee build.log
           # ✅ grep extracts "eu-west-3:ami-0abc123..." then cuts after the colon
           AMI_ID=$(grep 'artifact,0,id' build.log | cut -d: -f2)
           echo "✅ AMI built: $AMI_ID"
