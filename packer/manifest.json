@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "name": "okta_mcp",
+      "builder_type": "amazon-ebs",
+      "build_time": 1774605504,
+      "files": null,
+      "artifact_id": "eu-west-3:ami-02ea52072626e816d",
+      "packer_run_uuid": "df7b123b-e0fb-b404-476e-3a6e80a6d549",
+      "custom_data": null
+    }
+  ],
+  "last_run_uuid": "df7b123b-e0fb-b404-476e-3a6e80a6d549"
+}
