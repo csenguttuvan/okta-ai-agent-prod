@@ -136,7 +136,7 @@ jobs:
       - name: Packer Init
         if: steps.check_packer.outputs.changed == 'true'
         working-directory: packer
-        run: packer init app-server.pkr.hcl
+        run: packer init .
 
       - name: Packer Build
         if: steps.check_packer.outputs.changed == 'true'
