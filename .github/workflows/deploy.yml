@@ -93,6 +93,9 @@ jobs:
   # ── 2. Build Packer AMI (GitHub-hosted runner) ───────────────────────
   build-ami:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     outputs:
       ami_id: ${{ steps.packer_build.outputs.ami_id }}
       ami_changed: ${{ steps.check_packer.outputs.changed }}
@@ -119,9 +122,10 @@ jobs:
         if: steps.check_packer.outputs.changed == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::306965385748:role/github-actions-packer-role
+          role-session-name: PackerBuild
           aws-region: eu-west-3
+  
 
       - name: Setup Packer
         if: steps.check_packer.outputs.changed == 'true'
