@@ -11,7 +11,8 @@ env:
   LITELLM_SECRET_ARN: arn:aws:secretsmanager:eu-west-3:306965385748:secret:litellm-master-key-20260128123932657700000001-p1aAwa
 
 jobs:
-  # ── Build & Scan (GitHub-hosted runner) ──────────────────────────────
+
+  # ── 1. Build & Scan (GitHub-hosted runner) ───────────────────────────
   build-and-scan:
     runs-on: ubuntu-latest
     outputs:
@@ -67,7 +68,7 @@ jobs:
 
       - name: Run Trivy vulnerability scanner
         if: steps.check_mcp.outputs.changed == 'true'
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           image-ref: ${{ env.IMAGE }}:scan
           format: table
@@ -89,7 +90,75 @@ jobs:
             ${{ env.IMAGE }}:${{ steps.tags.outputs.short_sha }}
 
 
-  # ── Deploy MCP image (self-hosted runner on EC2) ──────────────────────
+  # ── 2. Build Packer AMI (GitHub-hosted runner) ───────────────────────
+  build-ami:
+    runs-on: ubuntu-latest
+    outputs:
+      ami_id: ${{ steps.packer_build.outputs.ami_id }}
+      ami_changed: ${{ steps.check_packer.outputs.changed }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if Packer files changed
+        id: check_packer
+        run: |
+          CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
+          if echo "$CHANGED" | grep -qE '^packer/'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "📦 Packer changes detected — building new AMI"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No Packer changes — skipping AMI build"
+          fi
+
+      - name: Configure AWS credentials
+        if: steps.check_packer.outputs.changed == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Setup Packer
+        if: steps.check_packer.outputs.changed == 'true'
+        uses: hashicorp/setup-packer@main
+        with:
+          version: "latest"
+
+      - name: Packer Init
+        if: steps.check_packer.outputs.changed == 'true'
+        working-directory: packer
+        run: packer init app-server.pkr.hcl
+
+      - name: Packer Build
+        if: steps.check_packer.outputs.changed == 'true'
+        id: packer_build
+        working-directory: packer
+        run: |
+          packer build -machine-readable app-server.pkr.hcl | tee build.log
+          # ✅ grep extracts "eu-west-3:ami-0abc123..." then cuts after the colon
+          AMI_ID=$(grep 'artifact,0,id' build.log | cut -d: -f2)
+          echo "✅ AMI built: $AMI_ID"
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+
+      - name: Write AMI build summary
+        if: steps.check_packer.outputs.changed == 'true'
+        run: |
+          echo "## 🖼️ Packer AMI Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **AMI ID** | \`${{ steps.packer_build.outputs.ami_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Region** | \`eu-west-3\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Built by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | ✅ Published |" >> $GITHUB_STEP_SUMMARY
+
+
+  # ── 3. Deploy MCP image (self-hosted runner on EC2) ──────────────────
   deploy:
     runs-on: [self-hosted, Linux, X64]
     needs: build-and-scan
@@ -108,8 +177,7 @@ jobs:
           echo "previous_image=$CURRENT" >> $GITHUB_OUTPUT
 
       - name: Pull new image
-        run: |
-          docker pull ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
+        run: docker pull ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}
 
       - name: Deploy via Docker Compose
         working-directory: /opt/okta-litellm
@@ -129,7 +197,6 @@ jobs:
             --secret-id ${{ env.LITELLM_SECRET_ARN }} \
             --query SecretString \
             --output text)
-
           echo "Waiting for LiteLLM..."
           for i in $(seq 1 12); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -171,11 +238,8 @@ jobs:
         if: failure() && steps.rollback.outputs.previous_image != 'none'
         working-directory: /opt/okta-litellm
         run: |
-          echo "⚠️ Deploy failed for ${{ env.IMAGE }}:${{ needs.build-and-scan.outputs.short_sha }}"
-          echo "⏪ Rolling back to: ${{ steps.rollback.outputs.previous_image }}"
+          echo "⚠️ Deploy failed — rolling back to: ${{ steps.rollback.outputs.previous_image }}"
           sed -i 's|image: "blackstaa/okta-mcp-server:.*"|image: "${{ steps.rollback.outputs.previous_image }}"|g' /opt/okta-litellm/docker-compose.yml
-          echo "Updated compose file:"
-          grep image /opt/okta-litellm/docker-compose.yml
           docker compose up -d --no-deps --force-recreate okta-mcp-admin okta-mcp-readonly
           sleep 15
 
@@ -194,12 +258,9 @@ jobs:
           echo "  admin    → status=$STATUS_ADMIN  image=$IMAGE_ADMIN"
           echo "  readonly → status=$STATUS_READONLY  image=$IMAGE_READONLY"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "🐳 All running containers:"
           docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
-          echo ""
           if [ "$STATUS_ADMIN" = "running" ] && [ "$STATUS_READONLY" = "running" ]; then
-            echo "✅ Rollback successful — previous version restored"
+            echo "✅ Rollback successful"
           else
             echo "❌ Rollback also failed — manual intervention required"
             docker logs okta-mcp-admin --tail 30
@@ -227,7 +288,7 @@ jobs:
           echo "| **Status** | $STATUS_ICON |" >> $GITHUB_STEP_SUMMARY
 
 
-  # ── Deploy config changes (self-hosted runner on EC2) ─────────────────
+  # ── 4. Deploy config changes (self-hosted runner on EC2) ─────────────
   deploy-config:
     runs-on: [self-hosted, Linux, X64]
 
@@ -241,7 +302,6 @@ jobs:
         id: check_config
         run: |
           CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
-          echo "$CHANGED"
           if echo "$CHANGED" | grep -q '^terraform/ansible/roles/okta_app/files/custom_callbacks.py'; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "📦 Config changes detected"
@@ -253,7 +313,6 @@ jobs:
       - name: Copy custom_callbacks.py to LiteLLM dir
         if: steps.check_config.outputs.changed == 'true'
         run: |
-          ls terraform/ansible/roles/okta_app/files/  # sanity check
           cp terraform/ansible/roles/okta_app/files/custom_callbacks.py \
             /opt/okta-litellm/custom_callbacks.py
           echo "✅ custom_callbacks.py updated"
@@ -273,16 +332,14 @@ jobs:
             --secret-id ${{ env.LITELLM_SECRET_ARN }} \
             --query SecretString \
             --output text)
-
-          echo "Waiting for LiteLLM after restart..."
-          for i in $(seq 1 12); do
+          for i in $(seq 1 24); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
               --max-time 10 \
               -H "Authorization: Bearer $MASTER_KEY" \
               http://localhost:4002/health/readiness)
             echo "Attempt $i → HTTP $STATUS"
             [ "$STATUS" = "200" ] && break
-            [ "$i" = "24" ] && { echo "❌ LiteLLM unhealthy after 120s (last status: $STATUS)"; exit 1; }
+            [ "$i" = "24" ] && { echo "❌ LiteLLM unhealthy after 120s"; exit 1; }
             sleep 5
           done
           echo "✅ LiteLLM healthy after config update"
@@ -300,10 +357,10 @@ jobs:
           echo "| **Status** | ✅ Live |" >> $GITHUB_STEP_SUMMARY
 
 
-  # ── Deploy Terraform changes (self-hosted runner on EC2) ──────────────
+  # ── 5. Deploy Terraform (self-hosted runner on EC2) ───────────────────
   deploy-terraform:
     runs-on: [self-hosted, Linux, X64]
-    needs: build-and-scan
+    needs: [build-and-scan, build-ami]
     outputs:
       tf_changed: ${{ steps.check_tf.outputs.changed }}
 
@@ -313,13 +370,16 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check if Terraform files changed
+      - name: Check if Terraform files or new AMI changed
         id: check_tf
         run: |
           CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
-          if echo "$CHANGED" | grep -qE '^terraform/[^/]+\.tf$|^terraform/bootstrap\.sh$'; then
+          AMI_CHANGED="${{ needs.build-ami.outputs.ami_changed }}"
+          # ✅ triggers on .tf file changes OR a freshly built Packer AMI
+          if echo "$CHANGED" | grep -qE '^terraform/[^/]+\.tf$' \
+            || [ "$AMI_CHANGED" = "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
-            echo "🏗️ Terraform changes detected"
+            echo "🏗️ Terraform changes or new AMI detected"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "⏭️ No Terraform changes — skipping"
@@ -339,10 +399,7 @@ jobs:
       - name: Terraform Plan
         if: steps.check_tf.outputs.changed == 'true'
         working-directory: terraform
-        run: |
-          terraform plan \
-            -out=tfplan \
-            -input=false
+        run: terraform plan -out=tfplan -input=false
 
       - name: Terraform Apply
         if: steps.check_tf.outputs.changed == 'true'
@@ -361,10 +418,10 @@ jobs:
           echo "| **Status** | ✅ Applied |" >> $GITHUB_STEP_SUMMARY
 
 
-  # ── Run Ansible provisioning (self-hosted runner on EC2) ──────────────
+  # ── 6. Run Ansible provisioning (self-hosted runner on EC2) ──────────
   deploy-ansible:
     runs-on: [self-hosted, Linux, X64]
-    needs: [build-and-scan, deploy-terraform]
+    needs: [build-and-scan, deploy-terraform, build-ami]
 
     steps:
       - name: Checkout code
@@ -372,20 +429,25 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check if Ansible files or Terraform changed
+      - name: Check if Ansible files, Terraform, or AMI changed
         id: check_ansible
         run: |
           CHANGED=$(git diff --name-only origin/main~1..origin/main || true)
           TF_CHANGED="${{ needs.deploy-terraform.outputs.tf_changed }}"
-          if echo "$CHANGED" | grep -qE '^terraform/ansible/' || [ "$TF_CHANGED" = "true" ]; then
+          AMI_CHANGED="${{ needs.build-ami.outputs.ami_changed }}"
+          # ✅ triggers on ansible files, tf changes, OR a new Packer AMI
+          if echo "$CHANGED" | grep -qE '^terraform/ansible/' \
+            || [ "$TF_CHANGED" = "true" ] \
+            || [ "$AMI_CHANGED" = "true" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "🔧 Ansible provisioning required"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "⏭️ No Ansible changes — skipping"
           fi
-      
+
       - name: Install Ansible collections
+        if: steps.check_ansible.outputs.changed == 'true'
         working-directory: terraform/ansible
         run: ansible-galaxy collection install -r requirements.yml -p ./collections --force
 
