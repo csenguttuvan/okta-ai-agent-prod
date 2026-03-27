@@ -1,5 +1,7 @@
 #!/bin/bash
 # Runs inside packer
+# packer pipeline test $(date)
+
 set -e
 
 echo "🚀 Starting minimal bootstrap..."
