@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs inside packer
-# packer pipeline test $(date)
+# pipeline test $(date)
 
 set -e
 

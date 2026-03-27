@@ -176,7 +176,8 @@ resource "aws_iam_role_policy" "terraform_operator" {
         ]
         Resource = [
           "arn:aws:iam::306965385748:role/mcp-prod-role",
-          "arn:aws:iam::306965385748:instance-profile/mcp-instance-profile"
+          "arn:aws:iam::306965385748:instance-profile/mcp-instance-profile",
+          "arn:aws:iam::306965385748:role/github-actions-packer-role"
         ]
       },
       {
