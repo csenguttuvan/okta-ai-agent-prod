@@ -14,7 +14,7 @@ provider "aws" {
 
 # EC2 Instance
 resource "aws_instance" "okta_mcp_prod" {
-  ami                         = data.aws_ami.amazon_linux_2023.id
+  ami                         = data.aws_ami.okta_mcp_packer.id
   instance_type               = var.instance_type
   subnet_id                   = data.aws_subnet.existing_private.id
   vpc_security_group_ids      = [aws_security_group.okta_mcp.id]
@@ -35,26 +35,26 @@ resource "aws_instance" "okta_mcp_prod" {
     ignore_changes = [ami, user_data]
   }
 
-  user_data = file("${path.module}/bootstrap.sh")
-
   tags = {
     Name        = "okta-mcp-litellm-ansible-prod-server"
     Environment = "Prod"
     Purpose     = "MCP Server Prod"
   }
 }
+
+
 # Get latest Amazon Linux 2023 AMI
-data "aws_ami" "amazon_linux_2023" {
+data "aws_ami" "okta_mcp_packer" {
   most_recent = true
-  owners      = ["amazon"]
+  owners      = ["self"] # my own AWS account
 
   filter {
     name   = "name"
-    values = ["al2023-ami-*-kernel-*-x86_64"]
+    values = ["okta-mcp-litellm-prod-*"] # Should match my packer's ami_name
   }
 
   filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
+    name   = "tag:ManagedBy"
+    values = ["packer"]
   }
 }
