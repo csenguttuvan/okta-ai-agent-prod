@@ -1,7 +1,6 @@
 #!/bin/bash
 # Runs inside packer
-# pipeline test $(date)
-# org fix test $(date)
+# iam fix $(date)
 
 set -e
 

@@ -311,7 +311,9 @@ resource "aws_iam_role_policy" "github_actions_packer" {
           "ssm:StartSession",
           "ssm:TerminateSession",
           "ssm:DescribeSessions",
-          "ssm:DescribeInstanceInformation"
+          "ssm:DescribeInstanceInformation",
+          "iam:GetInstanceProfile",
+          "iam:PassRole"
         ]
         Resource = "*"
       }
