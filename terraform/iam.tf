@@ -264,7 +264,7 @@ resource "aws_iam_role" "github_actions_packer" {
       Condition = {
         StringLike = {
           # ✅ Lock to your specific repo
-          "token.actions.githubusercontent.com:sub" = "repo:kaltura/corp-it-okta-ai-agent-llm-bedrock-prod:*"
+          "token.actions.githubusercontent.com:sub" = "repo:csenguttuvan/okta-ai-agent-prod:*"
         }
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
