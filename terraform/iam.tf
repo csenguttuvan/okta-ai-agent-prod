@@ -245,3 +245,83 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.mcp_prod.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
+
+
+# ── OIDC Token creation for Packer to assume an IAM role ──────────────────────────────────────────
+
+resource "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = ["sts.amazonaws.com"]
+
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+
+resource "aws_iam_role" "github_actions_packer" {
+  name = "github-actions-packer-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.github.arn
+      }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringLike = {
+          # ✅ Lock to your specific repo
+          "token.actions.githubusercontent.com:sub" = "repo:chrissenguttuvan/okta-mcp-server-with-litellm-prod:*"
+        }
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "github_actions_packer" {
+  name = "github-actions-packer-policy"
+  role = aws_iam_role.github_actions_packer.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Packer needs EC2 permissions to build AMIs
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeImages",
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceStatus",
+          "ec2:RunInstances",
+          "ec2:StopInstances",
+          "ec2:TerminateInstances",
+          "ec2:CreateImage",
+          "ec2:DeregisterImage",
+          "ec2:DescribeSnapshots",
+          "ec2:DeleteSnapshot",
+          "ec2:CreateTags",
+          "ec2:DescribeTags",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeKeyPairs",
+          "ec2:CreateKeypair",
+          "ec2:DeleteKeyPair",
+          "ec2:DescribeRegions",
+          "ec2:DescribeVolumes",
+          "ec2:ModifyInstanceAttribute",
+          "ec2:AssociateIamInstanceProfile",
+          "iam:PassRole",
+          "ssm:StartSession",
+          "ssm:TerminateSession",
+          "ssm:DescribeSessions",
+          "ssm:DescribeInstanceInformation"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
