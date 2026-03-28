@@ -1,0 +1,69 @@
+---
+- name: Ensure litellm database exists on RDS
+  community.postgresql.postgresql_db:
+    name: "{{ litellm_db_name }}"
+    state: present
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+    encoding: UTF-8
+  delegate_to: localhost
+  no_log: true
+
+- name: Ensure litellm user exists on RDS
+  community.postgresql.postgresql_user:
+    name: "{{ litellm_db_user }}"
+    password: "{{ litellm_db_password }}"
+    state: present
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+  delegate_to: localhost
+  no_log: true
+
+- name: Grant litellm user privileges on RDS
+  community.postgresql.postgresql_privs:
+    database: "{{ litellm_db_name }}"
+    roles: "{{ litellm_db_user }}"
+    type: database
+    privs: ALL
+    state: present
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+  delegate_to: localhost
+  no_log: true
+
+- name: Grant schema public privileges to litellm user
+  community.postgresql.postgresql_privs:
+    database: "{{ litellm_db_name }}"
+    roles: "{{ litellm_db_user }}"
+    type: schema
+    objs: public
+    privs: ALL
+    state: present
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+  delegate_to: localhost
+  no_log: true
+
+- name: Set schema public owner to litellm user
+  community.postgresql.postgresql_schema:
+    name: public
+    owner: "{{ litellm_db_user }}"
+    database: "{{ litellm_db_name }}"
+    login_host: "{{ rds_host }}"
+    login_user: "{{ rds_master_user }}"
+    login_password: "{{ rds_master_password }}"
+  delegate_to: localhost
+  no_log: true
+
+- name: Run LiteLLM Prisma migrations
+  community.docker.docker_container_exec:
+    container: litellm-proxy
+    command: prisma db push --schema /app/schema.prisma
+  register: prisma_result
+  retries: 5
+  delay: 10
+  until: prisma_result is not failed

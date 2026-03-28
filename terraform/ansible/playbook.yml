@@ -14,17 +14,20 @@
 
   roles:
 
+    - role: storage
+      tags: ['storage']  
+
     - role: aws_secrets
       tags: ['secrets']
 
-    - role: storage
-      tags: ['storage']
+    - role: database
+      tags: ['database']
  
-    - role: okta_app
-      tags: ['app']
-
     - role: docker
       tags: ['docker']
+
+    - role: okta_app
+      tags: ['app']
 
     - role: github_runner
       tags: ['github_runner']

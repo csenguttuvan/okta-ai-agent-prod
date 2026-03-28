@@ -1,49 +1,13 @@
 ---
-- name: Copy Docker Compose file
-  ansible.builtin.template:
-    src: docker-compose.yml.j2
-    dest: /opt/okta-litellm/docker-compose.yml
+# 1. Create directories
+- name: Create app directory
+  ansible.builtin.file:
+    path: /opt/okta-litellm
+    state: directory
     owner: ec2-user
     group: ec2-user
-    mode: '0644'
-  notify: Restart docker compose
-
-- name: Copy LiteLLM config
-  ansible.builtin.template:
-    src: litellm-config.yml.j2
-    dest: /opt/okta-litellm/litellm-config.yaml
-    owner: ec2-user
-    group: ec2-user
-    mode: '0644'
-  notify: Restart litellm
-
-- name: Copy custom callbacks
-  ansible.builtin.copy:
-    src: custom_callbacks.py
-    dest: /opt/okta-litellm/custom_callbacks.py
-    owner: ec2-user
-    group: ec2-user
-    mode: '0644'
-  notify: Restart litellm
-
-- name: Copy Loki config
-  ansible.builtin.template:
-    src: loki-config.yml.j2
-    dest: /opt/okta-litellm/loki-config.yaml
-    owner: ec2-user
-    group: ec2-user
-    mode: '0644'
-  notify: Restart loki
-
-- name: Copy Alloy config
-  ansible.builtin.template:
-    src: alloy-config.alloy.j2
-    dest: /opt/okta-litellm/alloy-config.alloy
-    owner: 473
-    group: 473
-    mode: '0644' 
-  notify: Restart alloy
-
+    mode: "0755"
+  become: true
 
 - name: Create Grafana data directory
   ansible.builtin.file:
@@ -54,23 +18,66 @@
     mode: "0755"
   become: true
 
-- name: Ensure Grafana data directory exists with correct ownership
-  ansible.builtin.file:
-    path: /opt/okta-litellm/grafana/data
-    state: directory
-    owner: "472"
-    group: "472"
-    mode: "0755"
+# 2. Copy config files
+- name: Copy Docker Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /opt/okta-litellm/docker-compose.yml
+    owner: ec2-user
+    group: ec2-user
+    mode: "0644"
+  become: true
+  notify: Restart docker compose
 
+- name: Copy LiteLLM config
+  ansible.builtin.template:
+    src: litellm-config.yml.j2
+    dest: /opt/okta-litellm/litellm-config.yaml
+    owner: ec2-user
+    group: ec2-user
+    mode: "0644"
+  become: true
+  notify: Restart litellm
+
+- name: Copy custom callbacks
+  ansible.builtin.copy:
+    src: custom_callbacks.py
+    dest: /opt/okta-litellm/custom_callbacks.py
+    owner: ec2-user
+    group: ec2-user
+    mode: "0644"
+  become: true
+  notify: Restart litellm
+
+- name: Copy Loki config
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: /opt/okta-litellm/loki-config.yaml
+    owner: ec2-user
+    group: ec2-user
+    mode: "0644"
+  become: true
+  notify: Restart loki
+
+- name: Copy Alloy config
+  ansible.builtin.template:
+    src: alloy-config.alloy.j2
+    dest: /opt/okta-litellm/alloy-config.alloy
+    owner: "473"
+    group: "473"
+    mode: "0644"
+  become: true
+  notify: Restart alloy
+
+# 3. Start the stack
 - name: Start Docker Compose stack
   community.docker.docker_compose_v2:
     project_src: /opt/okta-litellm
     state: present
     remove_orphans: true
+  become: true
   register: compose_output
 
 - name: Display container status
   ansible.builtin.debug:
     msg: "Docker Compose deployed successfully"
-
-

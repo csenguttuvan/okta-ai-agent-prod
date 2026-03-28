@@ -1,5 +1,3 @@
-# ansible/roles/okta_app/templates/docker-compose.yml.j2
-version: '3.9'
 
 networks:
   logging:
@@ -137,8 +135,6 @@ services:
   redis:
     image: redis:{{ redis_version }}
     container_name: litellm-redis
-    ports:
-      - "6379:6379"
     volumes:
       - ./redis-data:/data
     network_mode: "host"

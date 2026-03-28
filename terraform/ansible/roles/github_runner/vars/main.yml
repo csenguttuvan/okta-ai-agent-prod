@@ -1,6 +1,6 @@
 runner_user: ec2-user
 runner_dir: /opt/actions-runner
-runner_name: prod-ec2-runner
+runner_name: "prod-ec2-runner-{{ inventory_hostname }}"
 runner_labels: "self-hosted,Linux,X64"
 runner_repo_url: "https://github.com/csenguttuvan/okta-ai-agent-prod"
 runner_version: "2.333.0"

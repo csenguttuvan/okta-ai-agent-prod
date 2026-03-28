@@ -1,50 +1,60 @@
 ---
 - name: Install Docker and dependencies
-  ansible.builtin.package:
+  ansible.builtin.dnf:
     name:
       - docker
       - aws-cli
       - jq
     state: present
-
-- name: Create Docker CLI plugins directory
-  ansible.builtin.file:
-    path: /usr/local/lib/docker/cli-plugins
-    state: directory
-    mode: '0755'
-
-- name: Download Docker Compose v2
-  ansible.builtin.get_url:
-    url: "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64"
-    dest: /usr/local/lib/docker/cli-plugins/docker-compose
-    mode: '0755'
-  notify: Verify docker compose
-
-- name: Create Docker CLI plugins directory
-  ansible.builtin.file:
-    path: /usr/local/lib/docker/cli-plugins
-    state: directory
-    mode: '0755'
+  become: true
 
 - name: Start and enable Docker service
-  ansible.builtin.service:
+  ansible.builtin.systemd:
     name: docker
     state: started
-    enabled: yes
+    enabled: true
+  become: true
 
 - name: Add ec2-user to docker group
   ansible.builtin.user:
     name: ec2-user
     groups: docker
-    append: yes
+    append: true
+  become: true
 
-- name: Install Python 3.11 dependencies
-  pip:
+- name: Create Docker CLI plugins directory
+  ansible.builtin.file:
+    path: /usr/local/lib/docker/cli-plugins
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Download Docker Compose plugin binary
+  ansible.builtin.get_url:
+    url: "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-{{ ansible_facts['architecture'] }}"
+    dest: /usr/local/lib/docker/cli-plugins/docker-compose
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Install Python dependencies
+  ansible.builtin.pip:
     name:
-      - "ansible-core>=2.16"
       - boto3
       - botocore
       - requests
-    state: latest
-    executable: pip3.11
+    state: present
+    executable: pip3
   become: true
+
+- name: Verify Docker Compose is working
+  ansible.builtin.command: docker compose version
+  register: compose_version
+  changed_when: false
+
+- name: Show Docker Compose version
+  ansible.builtin.debug:
+    msg: "{{ compose_version.stdout }}"
