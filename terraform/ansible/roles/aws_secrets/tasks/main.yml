@@ -75,7 +75,27 @@
   register: litellm_secrets
   no_log: true
   changed_when: false
+  
+- name: Read GitHub App credentials from Secrets Manager
+  ansible.builtin.shell: |
+    aws secretsmanager get-secret-value \
+      --region {{ aws_region }} \
+      --secret-id {{ item.secret }} \
+      --query SecretString --output text
+  loop:
+    - { name: app_id,             secret: "{{ github_runner_app_id_secret_id }}" }
+    - { name: installation_id,    secret: "{{ github_runner_app_installation_id_secret_id }}" }
+    - { name: private_key,        secret: "{{ github_runner_app_private_key_secret_id }}" }
+  register: github_runner_secrets
+  no_log: true 
 
+- name: Set GitHub App credential facts
+  ansible.builtin.set_fact:
+    github_runner_app_id:              "{{ github_runner_secrets.results[0].stdout }}"
+    github_runner_app_installation_id: "{{ github_runner_secrets.results[1].stdout }}"
+    github_runner_app_private_key:     "{{ github_runner_secrets.results[2].stdout }}"
+  no_log: true
+  changed_when: false
 
 - name: Create .env file from secrets
   ansible.builtin.template:

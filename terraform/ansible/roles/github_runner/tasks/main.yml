@@ -1,0 +1,139 @@
+---
+- name: Install Python dependencies for token generation
+  ansible.builtin.pip:
+    name:
+      - PyJWT
+      - cryptography
+      - requests
+    state: present
+    executable: pip3 # Uses pip3 explicitly to generate the runner token
+
+- name: Create runner directory
+  ansible.builtin.file:
+    path: "{{ runner_dir }}"
+    state: directory
+    owner: "{{ runner_user }}"
+    group: "{{ runner_user }}"
+    mode: '0755'
+
+- name: Create runner script directory
+  ansible.builtin.file:
+    path: "{{ runner_script_dir }}"
+    state: directory
+    owner: "{{ runner_user }}"
+    group: "{{ runner_user }}"
+    mode: '0755'
+  
+
+- name: Copy token generation script
+  ansible.builtin.copy:
+    src: generate_github_token.py
+    dest: /opt/scripts/generate_github_token.py
+    owner: "{{ runner_user }}"
+    group: "{{ runner_user }}"
+    mode: '0700'
+
+- name: Check if runner is already configured
+  ansible.builtin.stat:
+    path: "{{ runner_dir }}/.runner"
+  register: runner_configured
+
+- name: Write GitHub App private key to temp file
+  ansible.builtin.copy:
+    content: "{{ github_runner_app_private_key }}"
+    dest: /tmp/github_app.pem
+    mode: '0600'
+  no_log: true
+  when: not runner_configured.stat.exists
+
+- name: Generate runner registration token
+  ansible.builtin.shell: >
+    python3 /opt/scripts/generate_github_token.py
+    --app-id "{{ github_runner_app_id }}"
+    --private-key "$(cat /tmp/github_app.pem)"
+    --installation-id "{{ github_runner_app_installation_id }}"
+  register: runner_registration_token
+  no_log: true
+  when: not runner_configured.stat.exists
+
+- name: Remove temp private key file
+  ansible.builtin.file:
+    path: /tmp/github_app.pem
+    state: absent
+  when: not runner_configured.stat.exists
+
+- name: Check if runner is already extracted
+  ansible.builtin.stat:
+    path: "{{ runner_dir }}/config.sh"
+  register: runner_extracted
+
+- name: Download GitHub Actions runner
+  ansible.builtin.get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ runner_version }}/actions-runner-linux-x64-{{ runner_version }}.tar.gz"
+    dest: "{{ runner_dir }}/runner.tar.gz"
+    owner: "{{ runner_user }}"
+    group: "{{ runner_user }}"
+  when: not runner_extracted.stat.exists
+
+- name: Extract runner
+  ansible.builtin.unarchive:
+    src: "{{ runner_dir }}/runner.tar.gz"
+    dest: "{{ runner_dir }}"
+    remote_src: yes
+    owner: "{{ runner_user }}"
+    group: "{{ runner_user }}"
+  when: not runner_extracted.stat.exists
+
+- name: Configure runner
+  ansible.builtin.shell: >
+    ./config.sh
+    --url {{ runner_repo_url }}
+    --token {{ runner_registration_token.stdout }}
+    --name {{ runner_name }}
+    --labels {{ runner_labels }}
+    --unattended
+    --replace
+  args:
+    chdir: "{{ runner_dir }}"
+  become: true
+  become_user: "{{ runner_user }}"
+  no_log: true
+  when: not runner_configured.stat.exists
+
+- name: Install runner as systemd service
+  ansible.builtin.command: ./svc.sh install
+  args:
+    chdir: "{{ runner_dir }}"
+  become: true
+  when: not runner_configured.stat.exists
+
+- name: Start runner service
+  ansible.builtin.command: ./svc.sh start
+  args:
+    chdir: "{{ runner_dir }}"
+  become: true
+  when: not runner_configured.stat.exists
+
+- name: Check if runner service file exists
+  ansible.builtin.stat:
+    path: "{{ runner_dir }}/.service"
+  register: runner_service_file
+
+- name: Read runner service name
+  ansible.builtin.slurp:
+    src: "{{ runner_dir }}/.service"
+  register: runner_service_raw
+  when: runner_service_file.stat.exists
+
+- name: Set runner service name fact
+  ansible.builtin.set_fact:
+    runner_service_name: "{{ runner_service_raw.content | b64decode | trim }}"
+  when: runner_service_file.stat.exists
+
+- name: Verify runner service is running
+  ansible.builtin.systemd:
+    name: "{{ runner_service_name }}"
+    state: started
+  register: runner_status
+  failed_when: runner_status.status.ActiveState != "active"
+  when: runner_service_file.stat.exists

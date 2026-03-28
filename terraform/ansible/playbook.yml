@@ -26,7 +26,13 @@
     - role: docker
       tags: ['docker']
 
+    - role: github_runner
+      tags: ['github_runner']
+
+
+
   post_tasks:
+
     - name: Verify all containers are running
       community.docker.docker_container_info:
         name: "{{ item }}"
