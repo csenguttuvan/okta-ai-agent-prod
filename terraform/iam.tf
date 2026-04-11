@@ -219,7 +219,14 @@ resource "aws_iam_role_policy" "terraform_operator" {
           "ec2:ModifyInstanceAttribute",
           "ec2:CreateTags",
           "ec2:DeleteTags",
-          "ec2:ModifySecurityGroupRules"
+          "ec2:ModifySecurityGroupRules",
+          "ec2:CreateVolume",
+          "ec2:AttachVolume",
+          "ec2:DetachVolume",
+          "ec2:DeleteVolume",
+          "ec2:DescribeVolumeAttribute",
+          "ec2:DescribeVolumeStatus",
+          "ec2:ModifyVolume"
         ]
         Resource = "*"
       },
@@ -256,11 +263,11 @@ resource "aws_iam_role" "github_actions_packer" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect    = "Allow"
+      Effect = "Allow"
       Principal = {
         Federated = "arn:aws:iam::306965385748:oidc-provider/token.actions.githubusercontent.com"
       }
-      Action    = "sts:AssumeRoleWithWebIdentity"
+      Action = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringLike = {
           # ✅ Lock to your specific repo
