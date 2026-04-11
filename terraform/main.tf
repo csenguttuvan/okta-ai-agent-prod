@@ -26,7 +26,7 @@ resource "aws_instance" "okta_mcp_prod" {
   root_block_device {
     volume_size           = 30
     volume_type           = "gp3"
-    delete_on_termination = false
+    delete_on_termination = true
     encrypted             = true
   }
 
@@ -57,4 +57,29 @@ data "aws_ami" "okta_mcp_packer" {
     name   = "tag:ManagedBy"
     values = ["packer"]
   }
+}
+
+
+# Persistent data volume — survives EC2 recreation
+resource "aws_ebs_volume" "persistent_data" {
+  availability_zone = aws_instance.okta_mcp_prod.availability_zone
+  size              = 50  # GB — covers Grafana, Loki, Redis, LiteLLM data
+  type              = "gp3"
+  encrypted         = true
+
+  lifecycle {
+    prevent_destroy = true  # ← never deleted, even on terraform destroy
+  }
+
+  tags = {
+    Name = "okta-mcp-persistent-data"
+  }
+}
+
+# Attach to EC2 — reattaches automatically on recreation
+resource "aws_volume_attachment" "persistent_data" {
+  device_name  = "/dev/xvdf"
+  volume_id    = aws_ebs_volume.persistent_data.id
+  instance_id  = aws_instance.okta_mcp_prod.id
+  force_detach = true  # ← allows clean detach when EC2 is terminated
 }
