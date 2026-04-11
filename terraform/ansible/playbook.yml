@@ -14,6 +14,9 @@
 
   roles:
 
+    - role: ebs
+      tags: ['ebs']  
+
     - role: storage
       tags: ['storage']  
 

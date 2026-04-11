@@ -63,7 +63,7 @@ services:
     network_mode: "host"
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro
-      - ./litellm-data:/app/data
+      - {{ storage_directory }}/litellm-data:/app/data
       - ./custom_callbacks.py:/app/custom_callbacks.py:ro
     env_file:
       - .env
@@ -85,15 +85,15 @@ services:
     command: -config.file=/etc/loki/config/loki-config.yaml
     volumes:
       - ./loki-config.yaml:/etc/loki/config/loki-config.yaml:ro
-      - ./loki-data:/loki
-      - ./loki-wal:/wal
+      - {{ storage_directory }}/loki-data:/loki
+      - {{ storage_directory }}/loki-wal:/wal
     ports:
       - "3100:3100"
     networks:
       - logging
     restart: unless-stopped
 
-  # Grafana Alloy - Log shipper (replaces Promtail)
+  # Grafana Alloy - Log shipper
   alloy:
     image: grafana/alloy:{{ alloy_version }}
     container_name: alloy
@@ -103,7 +103,7 @@ services:
       - --storage.path=/var/lib/alloy/data
     volumes:
       - ./alloy-config.alloy:/etc/alloy/config.alloy:ro
-      - ./alloy-data:/var/lib/alloy/data
+      - {{ storage_directory }}/alloy-data:/var/lib/alloy/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - logging
@@ -126,8 +126,8 @@ services:
       - GF_SERVER_ROOT_URL=http://localhost:10039
       - GF_SERVER_DOMAIN=localhost
     volumes:
-      - /opt/okta-litellm/grafana/data:/var/lib/grafana 
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - {{ storage_directory }}/grafana/data:/var/lib/grafana 
+      - {{ storage_directory }}/grafana/provisioning:/etc/grafana/provisioning:ro # host path -> container path
     network_mode: "host"
     restart: unless-stopped
 
@@ -136,7 +136,7 @@ services:
     image: redis:{{ redis_version }}
     container_name: litellm-redis
     volumes:
-      - ./redis-data:/data
+      - {{ storage_directory }}/redis-data:/data
     network_mode: "host"
     command: redis-server --save "" --appendonly no --stop-writes-on-bgsave-error no
     restart: unless-stopped

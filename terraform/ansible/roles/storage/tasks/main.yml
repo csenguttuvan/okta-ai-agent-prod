@@ -1,4 +1,6 @@
 ---
+# ── Application Directories ───────────────────────────────────────────────────
+
 - name: Create application directories
   ansible.builtin.file:
     path: "{{ item.path }}"
@@ -7,42 +9,54 @@
     group: "{{ item.group | default('ec2-user') }}"
     mode: "{{ item.mode | default('0755') }}"
   loop:
-    - { path: '/opt/okta-litellm' }
-    - { path: '/opt/okta-litellm/keys', mode: '0755' }
-    - { path: '/opt/okta-litellm/litellm-data' }
-    - { path: '/opt/okta-litellm/loki-data', owner: '10001', group: '10001' }
-    - { path: '/opt/okta-litellm/loki-wal', owner: '10001', group: '10001' }
-    - { path: '/opt/okta-litellm/redis-data' }
-    - { path: '/opt/okta-litellm/grafana-data', owner: '472', group: '472' }
-    - { path: '/opt/okta-litellm/grafana', owner: '472', group: '472' }
-    - { path: '/opt/okta-litellm/alloy-data', owner: '473', group: '473' }
+    - { path: '{{ storage_directory }}' }
+    - { path: '{{ application_directory }}/keys', mode: '0755' }
+    - { path: '{{ storage_directory }}/litellm-data' }
+    - { path: '{{ storage_directory }}/loki-data', owner: '10001', group: '10001' }
+    - { path: '{{ storage_directory }}/loki-wal', owner: '10001', group: '10001' }
+    - { path: '{{ storage_directory }}/redis-data' }
+    - { path: '{{ storage_directory }}/grafana', owner: '472', group: '472' }                      # ← parent first
+    - { path: '{{ storage_directory }}/grafana/data', owner: '472', group: '472' }                 # ← data dir
+    - { path: '{{ storage_directory }}/grafana/provisioning', owner: '472', group: '472' }         # ← provisioning dir
+    - { path: '{{ storage_directory }}/grafana/provisioning/datasources', owner: '472', group: '472' }
+    - { path: '{{ storage_directory }}/grafana/provisioning/dashboards', owner: '472', group: '472' }
+    - { path: '{{ storage_directory }}/alloy-data', owner: '473', group: '473' }
 
+# ── Ownership — gated by stat to avoid recurse on existing data ───────────────
 
-- name: Create Grafana provisioning directories
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    owner: '472'
-    group: '472'
-    mode: '0755'
-  loop:
-    - /opt/okta-litellm/grafana/provisioning/datasources
-    - /opt/okta-litellm/grafana/provisioning/dashboards
+- name: Check if Loki data has existing content
+  ansible.builtin.stat:
+    path: "{{ storage_directory }}/loki-data/chunks"
+  register: loki_data_exists
 
 - name: Ensure Loki directories have correct ownership
   ansible.builtin.file:
     path: "{{ item }}"
     owner: '10001'
     group: '10001'
-    recurse: yes
+    state: directory
+    recurse: "{{ not loki_data_exists.stat.exists }}"
   loop:
-    - /opt/okta-litellm/loki-data
-    - /opt/okta-litellm/loki-wal
+    - "{{ storage_directory }}/loki-data"
+    - "{{ storage_directory }}/loki-wal"
+
+- name: Check if Grafana data has existing content
+  ansible.builtin.stat:
+    path: "{{ storage_directory }}/grafana/data/grafana.db"   # ← fixed path
+  register: grafana_db_exists
+
+- name: Ensure Grafana directories have correct ownership
+  ansible.builtin.file:
+    path: "{{ storage_directory }}/grafana/data"              # ← fixed path
+    owner: '472'
+    group: '472'
+    state: directory
+    recurse: "{{ not grafana_db_exists.stat.exists }}"
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
 
 - name: Ensure psycopg2 is installed (required by community.postgresql)
   ansible.builtin.pip:
     name: psycopg2-binary
     state: present
   delegate_to: localhost
-
-

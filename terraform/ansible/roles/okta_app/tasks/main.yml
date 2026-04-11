@@ -1,28 +1,10 @@
 ---
-# 1. Create directories
-- name: Create app directory
-  ansible.builtin.file:
-    path: /opt/okta-litellm
-    state: directory
-    owner: ec2-user
-    group: ec2-user
-    mode: "0755"
-  become: true
 
-- name: Create Grafana data directory
-  ansible.builtin.file:
-    path: /opt/okta-litellm/grafana/data
-    state: directory
-    owner: "472"
-    group: "472"
-    mode: "0755"
-  become: true
-
-# 2. Copy config files
+# 1. Copy config files
 - name: Copy Docker Compose file
   ansible.builtin.template:
     src: docker-compose.yml.j2
-    dest: /opt/okta-litellm/docker-compose.yml
+    dest: "{{ application_directory }}/docker-compose.yml"
     owner: ec2-user
     group: ec2-user
     mode: "0644"
@@ -32,7 +14,7 @@
 - name: Copy LiteLLM config
   ansible.builtin.template:
     src: litellm-config.yml.j2
-    dest: /opt/okta-litellm/litellm-config.yaml
+    dest: "{{ application_directory }}/litellm-config.yaml"
     owner: ec2-user
     group: ec2-user
     mode: "0644"
@@ -42,7 +24,7 @@
 - name: Copy custom callbacks
   ansible.builtin.copy:
     src: custom_callbacks.py
-    dest: /opt/okta-litellm/custom_callbacks.py
+    dest: "{{ application_directory }}/custom_callbacks.py"
     owner: ec2-user
     group: ec2-user
     mode: "0644"
@@ -52,7 +34,7 @@
 - name: Copy Loki config
   ansible.builtin.template:
     src: loki-config.yml.j2
-    dest: /opt/okta-litellm/loki-config.yaml
+    dest: "{{ application_directory }}/loki-config.yaml"
     owner: ec2-user
     group: ec2-user
     mode: "0644"
@@ -62,17 +44,17 @@
 - name: Copy Alloy config
   ansible.builtin.template:
     src: alloy-config.alloy.j2
-    dest: /opt/okta-litellm/alloy-config.alloy
+    dest: "{{ application_directory }}/alloy-config.alloy"
     owner: "473"
     group: "473"
     mode: "0644"
   become: true
   notify: Restart alloy
 
-# 3. Start the stack
+# 2. Start the stack
 - name: Start Docker Compose stack
   community.docker.docker_compose_v2:
-    project_src: /opt/okta-litellm
+    project_src: "{{ application_directory }}"
     state: present
     remove_orphans: true
   become: true

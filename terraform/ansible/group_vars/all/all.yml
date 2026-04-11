@@ -44,3 +44,8 @@ litellm_db_name: "litellm"
 rds_host: "okta-orchestrator-db.cxvxlfb3g9aw.eu-west-3.rds.amazonaws.com"
 rds_master_user: "orchestrator"
 rds_db_password_secret_id: "arn:aws:secretsmanager:eu-west-3:306965385748:secret:okta-orchestrator-db-password-Q9XPIF"
+
+# EBS Mount point
+application_directory: /opt/okta-litellm
+storage_directory: /opt/okta-litellm/data
+persistent_volume_uuid: 649c4395-6ae6-4485-b2af-f9a16c1910e0

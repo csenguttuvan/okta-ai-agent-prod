@@ -1,0 +1,61 @@
+- name: Check if persistent volume device exists
+  ansible.builtin.stat:
+    path: /dev/nvme1n1p1
+  register: persistent_device
+
+- name: Fail if persistent EBS is not attached
+  ansible.builtin.fail:
+    msg: >
+      Persistent EBS volume /dev/nvme1n1p1 is not attached to this instance.
+      Attach vol-0067e067e8fd1e05f in the AWS console before running this playbook.
+  when: not persistent_device.stat.exists
+
+
+- name: Check if storage directory is already mounted
+  ansible.builtin.command: mountpoint -q {{ storage_directory }}
+  register: mount_check
+  failed_when: false
+  changed_when: false
+
+
+- name: Mount persistent volume (only if not already mounted)
+  ansible.posix.mount:
+    path: "{{ storage_directory }}"
+    src: "UUID={{ persistent_volume_uuid }}"
+    fstype: ext4
+    state: mounted
+    opts: defaults,nofail
+  when: mount_check.rc != 0
+
+
+- name: Ensure fstab entry exists for persistent volume
+  ansible.posix.mount:
+    path: "{{ storage_directory }}"
+    src: "UUID={{ persistent_volume_uuid }}"
+    fstype: ext4
+    state: present
+    opts: defaults,nofail
+
+
+- name: Confirm storage directory is a real mountpoint
+  ansible.builtin.command: mountpoint -q {{ storage_directory }}
+  changed_when: false
+  register: mount_confirm
+
+- name: Fail if storage directory is not a mountpoint
+  ansible.builtin.fail:
+    msg: >
+      {{ storage_directory }} is not a mounted volume.
+      Aborting to prevent writing Grafana/Loki/Redis data to the root disk.
+  when: mount_confirm.rc != 0
+
+- name: Verify mounted volume has sufficient free space (warn if < 5GB)
+  ansible.builtin.shell: |
+    df -BG {{ storage_directory }} | awk 'NR==2 {gsub("G",""); print $4}'
+  register: free_space_gb
+  changed_when: false
+
+- name: Warn if persistent volume is running low on space
+  ansible.builtin.debug:
+    msg: "WARNING: Only {{ free_space_gb.stdout }}GB free on {{ storage_directory }}"
+  when: free_space_gb.stdout | int < 5
